@@ -1,0 +1,28 @@
+app:
+  name: OMBot
+  env: development
+  host_id: local-dev
+
+agent:
+  max_context_messages: 30
+  auto_summary_threshold: 24
+  system_prompt_template: "config/prompts/system.txt"
+  workspace_files:
+    - "workspace/RUNBOOK.md"
+    - "workspace/HOST_PROFILE.md"
+    - "workspace/TOOLS.md"
+
+gateway:
+  mode: embedded
+  local_cli_enabled: true
+  approval_timeout_sec: 300
+
+logging:
+  level: info
+  pretty: true
+
+paths:
+  data_dir: "./data"
+  workspace_dir: "./workspace"
+  transcripts_dir: "./data/sessions"
+  audit_db_path: "./data/audit/audit.db"

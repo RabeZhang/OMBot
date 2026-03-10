@@ -1,0 +1,20 @@
+profiles:
+  readonly:
+    default_action: deny
+    allow:
+      - get_process_status
+      - get_cpu_usage
+      - get_memory_usage
+      - get_disk_usage
+      - get_port_status
+      - check_http_endpoint
+      - get_system_logs
+
+  ops:
+    default_action: deny
+    allow:
+      - restart_service
+      - stop_service
+    require_confirmation:
+      - restart_service
+      - stop_service

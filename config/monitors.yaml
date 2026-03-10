@@ -1,0 +1,109 @@
+monitors:
+  - id: healthy-service
+    name: 健康服务 HTTP 检查
+    enabled: true
+    type: http
+    interval: 30s
+    target:
+      url: "http://localhost:9001/health"
+      expected_status: 200
+      timeout_ms: 5000
+    on_failure:
+      severity: warning
+      create_incident_session: true
+
+  - id: slow-service
+    name: 慢响应服务检查
+    enabled: true
+    type: http
+    interval: 30s
+    target:
+      url: "http://localhost:9002/health"
+      expected_status: 200
+      timeout_ms: 5000
+    threshold:
+      operator: ">"
+      value: 2000
+      unit: ms
+    on_failure:
+      severity: warning
+      create_incident_session: true
+
+  - id: flaky-service
+    name: 不稳定服务检查
+    enabled: true
+    type: http
+    interval: 20s
+    target:
+      url: "http://localhost:9003/health"
+      expected_status: 200
+      timeout_ms: 5000
+    on_failure:
+      severity: warning
+      create_incident_session: true
+
+  - id: leaky-service
+    name: 内存泄漏服务检查
+    enabled: true
+    type: http
+    interval: 60s
+    target:
+      url: "http://localhost:9004/health"
+      expected_status: 200
+      timeout_ms: 5000
+    on_failure:
+      severity: warning
+      create_incident_session: true
+
+  - id: cpu-stress-service
+    name: CPU 压力服务检查
+    enabled: true
+    type: http
+    interval: 30s
+    target:
+      url: "http://localhost:9005/health"
+      expected_status: 200
+      timeout_ms: 5000
+    on_failure:
+      severity: warning
+      create_incident_session: true
+
+  - id: root-disk-usage
+    name: 根分区使用率
+    enabled: true
+    type: resource
+    interval: 300s
+    target:
+      metric: disk_usage
+      mount_point: "/"
+    threshold:
+      operator: ">"
+      value: 85
+      unit: percent
+    cooldown: 1800s
+
+  - id: cpu-usage
+    name: CPU 使用率
+    enabled: true
+    type: resource
+    interval: 30s
+    target:
+      metric: cpu_usage
+    threshold:
+      operator: ">"
+      value: 80
+      unit: percent
+    cooldown: 300s
+
+  - id: memory-usage
+    name: 内存使用率
+    enabled: true
+    type: resource
+    interval: 30s
+    target:
+      metric: memory_usage
+    threshold:
+      operator: ">"
+      value: 80
+      unit: percent
+    cooldown: 300s
