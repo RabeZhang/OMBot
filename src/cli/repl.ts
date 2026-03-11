@@ -259,6 +259,96 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
         const snapshot = await options.gateway.getSession(command.sessionId);
         if (!snapshot) { addTextMsg(systemMessage(`未找到会话: ${command.sessionId}`)); return; }
         activeSessionId = snapshot.session.sessionId;
+
+        // 加载并显示历史对话记录
+        messagesContainer.clear();
+        collapsedRuns.length = 0;
+
+        if (snapshot.transcript.length > 0) {
+          addTextMsg(systemMessage(`── 历史记录 (${snapshot.transcript.length} 条) ──`));
+
+          let currentToolRun: Array<{
+            name: string;
+            inputSummary: string;
+            resultSummary?: string;
+            startedAt: number;
+          }> = [];
+          let toolRunStartTime = 0;
+
+          for (const entry of snapshot.transcript) {
+            switch (entry.kind) {
+              case "message": {
+                // 先处理之前累积的工具调用
+                if (currentToolRun.length > 0) {
+                  const totalElapsed = Math.round((Date.now() - toolRunStartTime) / 100) / 10;
+                  const runIndex = collapsedRuns.length + 1;
+                  const expandedLines = currentToolRun.flatMap((t) => [
+                    toolCallStyle(`  ▶ ${t.name}  ${chalk.gray(t.inputSummary)}`),
+                    ...(t.resultSummary ? [toolResultStyle(`    └ ${t.resultSummary}`)] : []),
+                  ]);
+                  collapsedRuns.push({ label: `第 ${runIndex} 次`, lines: expandedLines });
+                  const hint = chalk.gray(` (输入 /expand ${runIndex} 展开)`);
+                  const summaryLine = chalk.gray(`  ▼ ${currentToolRun.length} 个工具调用，耗时 ${totalElapsed}s`) + hint;
+                  messagesContainer.addChild(new Text(summaryLine, 0, 0));
+                  currentToolRun = [];
+                }
+
+                const role = entry.payload.role as string;
+                const content = entry.payload.content as string;
+                if (role === "user") {
+                  addTextMsg(renderUserInput(content));
+                } else if (role === "assistant" && content) {
+                  addMarkdownMsg(content);
+                }
+                break;
+              }
+
+              case "tool_call": {
+                if (currentToolRun.length === 0) {
+                  toolRunStartTime = Date.now();
+                }
+                const toolName = entry.payload.toolName as string;
+                const input = entry.payload.input as Record<string, unknown>;
+                const inputStr = JSON.stringify(input);
+                const inputSummary = inputStr.length > 60 ? inputStr.slice(0, 57) + "..." : inputStr;
+                currentToolRun.push({ name: toolName, inputSummary, startedAt: Date.now() });
+                break;
+              }
+
+              case "tool_result": {
+                if (currentToolRun.length > 0) {
+                  const tool = currentToolRun[currentToolRun.length - 1]!;
+                  const elapsed = Date.now() - tool.startedAt;
+                  const output = entry.payload.output;
+                  const outputRaw = typeof output === "string" ? output : JSON.stringify(output ?? "");
+                  const preview = outputRaw.length > 80 ? outputRaw.slice(0, 77) + "..." : outputRaw;
+                  tool.resultSummary = `${preview}  ${chalk.gray(`(${elapsed}ms)`)}`;
+                }
+                break;
+              }
+            }
+          }
+
+          // 处理最后一批工具调用
+          if (currentToolRun.length > 0) {
+            const totalElapsed = Math.round((Date.now() - toolRunStartTime) / 100) / 10;
+            const runIndex = collapsedRuns.length + 1;
+            const expandedLines = currentToolRun.flatMap((t) => [
+              toolCallStyle(`  ▶ ${t.name}  ${chalk.gray(t.inputSummary)}`),
+              ...(t.resultSummary ? [toolResultStyle(`    └ ${t.resultSummary}`)] : []),
+            ]);
+            collapsedRuns.push({ label: `第 ${runIndex} 次`, lines: expandedLines });
+            const hint = chalk.gray(` (输入 /expand ${runIndex} 展开)`);
+            const summaryLine = chalk.gray(`  ▼ ${currentToolRun.length} 个工具调用，耗时 ${totalElapsed}s`) + hint;
+            messagesContainer.addChild(new Text(summaryLine, 0, 0));
+          }
+
+          addTextMsg(systemMessage(`── 以上为历史记录，继续对话 ──`));
+        } else {
+          addTextMsg(systemMessage("该会话暂无历史记录。"));
+        }
+
+        tui.requestRender();
         addTextMsg(systemMessage(`已切换到会话: ${activeSessionId}`));
         return;
       }
