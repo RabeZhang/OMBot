@@ -182,6 +182,7 @@ Phase 1 工具分为两类：
 
 建议最小工具集：
 
+**监控类（readonly）**：
 - `get_process_status`
 - `get_cpu_usage`
 - `get_memory_usage`
@@ -189,10 +190,23 @@ Phase 1 工具分为两类：
 - `get_port_status`
 - `check_http_endpoint`
 - `get_system_logs`
+
+**运维类（mutating，需确认）**：
 - `restart_service`
 - `stop_service`
 
-Phase 1 中，`execute_shell` 可以暂缓或只保留极严格白名单版本。
+**通用执行（通过 pi-mom 嵌入）**：
+- `bash` - 主机命令执行（pi-mom，支持输出截断、超时）
+- `grep` - 文件内容搜索
+- `find` - 文件查找
+
+**扩展工具（可选，未来嵌入 pi-mom）**：
+- `read` - 文件读取（支持 offset/limit 分页）
+- `write` - 文件写入
+- `edit` - 精确文本编辑（带 diff 预览）
+- `docker_bash` - 在隔离容器内执行命令（高风险操作隔离）
+
+Phase 1 中，`docker_bash` 作为可选增强，需用户预先创建 Docker 容器。
 
 建议接口：
 

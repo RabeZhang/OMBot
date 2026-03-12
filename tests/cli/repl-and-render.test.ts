@@ -6,13 +6,24 @@ import { renderGatewayEvent, renderHelp, renderSessionSummaries } from "../../sr
 describe("parseCliCommand", () => {
   it("parses cli control commands", () => {
     expect(parseCliCommand("/help")).toEqual({ type: "help" });
-    expect(parseCliCommand("/sessions")).toEqual({ type: "sessions" });
+    expect(parseCliCommand("/sessions")).toEqual({ type: "sessions", limit: 10 });
+    expect(parseCliCommand("/sessions 20")).toEqual({ type: "sessions", limit: 20 });
+    expect(parseCliCommand("/sessions all")).toEqual({ type: "sessions", limit: "all" });
     expect(parseCliCommand("/clear")).toEqual({ type: "clear" });
     expect(parseCliCommand("/exit")).toEqual({ type: "exit" });
     expect(parseCliCommand("/quit")).toEqual({ type: "exit" });
     expect(parseCliCommand("/use sess_123")).toEqual({
       type: "use",
       sessionId: "sess_123",
+    });
+    // 支持用编号切换 /use 1, /use 2
+    expect(parseCliCommand("/use 1")).toEqual({
+      type: "use",
+      sessionIndex: 1,
+    });
+    expect(parseCliCommand("/use 10")).toEqual({
+      type: "use",
+      sessionIndex: 10,
     });
   });
 
@@ -70,6 +81,6 @@ describe("render helpers", () => {
 
     expect(renderSessionSummaries([])).toBe("当前还没有会话。");
     expect(renderHelp()).toContain("/sessions");
-    expect(renderHelp()).toContain("/use <sessionId>");
+    expect(renderHelp()).toContain("/use");
   });
 });

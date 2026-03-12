@@ -36,6 +36,10 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
 
   let activeSessionId: string | undefined;
   let agentRunning = false;
+  let lastUserInput: string | undefined;
+
+  // ── Session 列表缓存（用于 /use 1, /use 2 编号切换）──
+  let sessionListCache: Array<{ sessionId: string; title?: string }> = [];
 
   // ── 消息区 ──
   const messagesContainer = new Container();
@@ -46,7 +50,7 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
     [
       { name: "help", description: "查看帮助" },
       { name: "sessions", description: "列出当前会话" },
-      { name: "use", description: "切换到指定会话" },
+      { name: "use <id|number>", description: "切换到指定会话 (/use 1 或 /use sess_xxx)" },
       { name: "clear", description: "清除当前会话绑定" },
       { name: "monitor", description: "查看最近的监控告警" },
       { name: "expand", description: "展开折叠的工具调用 (可选: /expand <序号>)" },
@@ -133,9 +137,13 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
     addToolLine(systemMessage("⏳ Agent 思考中..."));
 
     try {
+      // 生成 session title：取用户输入前 20 个字符
+      const title = content.length > 20 ? content.slice(0, 20) + "..." : content;
+
       const handle = await options.gateway.sendUserMessage({
         content,
         sessionId: activeSessionId,
+        title: title || undefined,
       });
       activeSessionId = handle.sessionId;
 
@@ -231,6 +239,13 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
       addTextMsg(renderUserInput(trimmed));
 
       if (command.type === "exit") {
+        // 兜底：如果 session 没有标题，用最后一次用户输入截断作为标题
+        if (activeSessionId && lastUserInput) {
+          const fallbackTitle = lastUserInput.length > 20
+            ? lastUserInput.slice(0, 17) + "..."
+            : lastUserInput;
+          await options.gateway.updateSessionTitle(activeSessionId, fallbackTitle).catch(() => {});
+        }
         addTextMsg(systemMessage("再见。"));
         tui.requestRender();
         setTimeout(() => { tui.stop(); resolveExit(); }, 100);
@@ -240,8 +255,18 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
       if (command.type === "help") { addTextMsg(renderHelp()); return; }
 
       if (command.type === "sessions") {
-        const sessions = await options.gateway.listSessions();
-        addTextMsg(renderSessionSummaries(sessions));
+        const allSessions = await options.gateway.listSessions();
+        const limit = command.limit ?? 10;
+
+        // 缓存 session 列表用于编号切换（按 updatedAt 倒序，最新的在前面）
+        sessionListCache = allSessions.map(s => ({ sessionId: s.sessionId, title: s.title }));
+
+        if (limit === "all") {
+          addTextMsg(renderSessionSummaries(allSessions, { limit: "all", total: allSessions.length }));
+        } else {
+          const limitedSessions = allSessions.slice(0, limit);
+          addTextMsg(renderSessionSummaries(limitedSessions, { limit, total: allSessions.length }));
+        }
         return;
       }
 
@@ -252,12 +277,31 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
       }
 
       if (command.type === "use") {
-        if (!command.sessionId) {
-          addTextMsg(systemMessage("请提供 sessionId，例如 /use sess_xxx"));
+        let targetSessionId: string | undefined;
+
+        if (command.sessionIndex !== undefined) {
+          // 使用编号切换 /use 1, /use 2
+          if (sessionListCache.length === 0) {
+            // 如果缓存为空，先刷新列表
+            const allSessions = await options.gateway.listSessions();
+            sessionListCache = allSessions.map(s => ({ sessionId: s.sessionId, title: s.title }));
+          }
+          const idx = command.sessionIndex - 1; // 用户输入是 1-based
+          if (idx < 0 || idx >= sessionListCache.length) {
+            addTextMsg(systemMessage(`无效的编号: ${command.sessionIndex}，当前共有 ${sessionListCache.length} 个会话`));
+            return;
+          }
+          targetSessionId = sessionListCache[idx]!.sessionId;
+        } else if (command.sessionId) {
+          // 使用 sessionId 切换 /use sess_xxx
+          targetSessionId = command.sessionId;
+        } else {
+          addTextMsg(systemMessage("请提供 sessionId 或编号，例如 /use 1 或 /use sess_xxx"));
           return;
         }
-        const snapshot = await options.gateway.getSession(command.sessionId);
-        if (!snapshot) { addTextMsg(systemMessage(`未找到会话: ${command.sessionId}`)); return; }
+
+        const snapshot = await options.gateway.getSession(targetSessionId);
+        if (!snapshot) { addTextMsg(systemMessage(`未找到会话: ${targetSessionId}`)); return; }
         activeSessionId = snapshot.session.sessionId;
 
         // 加载并显示历史对话记录
@@ -383,7 +427,9 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
         return;
       }
 
-      await handleAgentMessage(command.content ?? trimmed);
+      // 记录最后一次用户输入（用于退出时兜底生成标题）
+      lastUserInput = command.content ?? trimmed;
+      await handleAgentMessage(lastUserInput);
     };
   });
 

@@ -47,6 +47,13 @@ export const ombotConfigSchema = z
       level: z.enum(["debug", "info", "warn", "error"]),
       pretty: z.boolean(),
     }),
+    execution: z
+      .object({
+        mode: z.enum(["host", "docker"]).default("host"),
+        dockerContainer: z.string().optional(),
+        dockerOptions: z.record(z.string(), z.unknown()).optional(),
+      })
+      .default({ mode: "host" }),
     paths: z.object({
       dataDir: z.string().min(1),
       workspaceDir: z.string().min(1),

@@ -1,4 +1,5 @@
 profiles:
+  # 只读模式：仅允许监控查询和文件查看
   readonly:
     default_action: deny
     allow:
@@ -9,12 +10,45 @@ profiles:
       - get_port_status
       - check_http_endpoint
       - get_system_logs
+      - bash              # 基础命令执行（已嵌入 pi-mom）
+      - grep              # 文件搜索
+      - find              # 文件查找
+      - read              # 文件读取（已嵌入 pi-mom）
 
+  # 运维模式：允许服务管理和文件操作
   ops:
     default_action: deny
     allow:
       - restart_service
       - stop_service
+      - bash
+      - grep
+      - find
+      - read
+      - write             # 文件写入（TODO: 嵌入 pi-mom write）
+      - edit              # 文件编辑（已嵌入 pi-mom）
     require_confirmation:
       - restart_service
       - stop_service
+      - write
+      - edit
+
+  # 隔离模式：高风险操作强制在 Docker 中执行
+  isolated:
+    default_action: deny
+    allow:
+      - get_process_status
+      - get_cpu_usage
+      - get_memory_usage
+      - get_disk_usage
+      - get_port_status
+      - check_http_endpoint
+      - get_system_logs
+      - read
+      - bash              # 只允许低风险命令
+    require_confirmation:
+      - bash
+    # docker_bash 用于替代 bash 执行高风险命令
+    # 需预先创建容器: docker run -d --name ombot-sandbox alpine tail -f /dev/null
+    docker_bash:
+      enabled: false      # 默认禁用，需手动启用

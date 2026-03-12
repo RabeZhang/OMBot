@@ -81,4 +81,8 @@ export interface Gateway {
   resolveApproval(input: ApprovalResolutionInput): Promise<void>;
   listSessions(): Promise<SessionSummary[]>;
   getSession(sessionId: string): Promise<SessionSnapshot | null>;
+  /**
+   * 更新 session 标题（退出时的兜底方案）
+   */
+  updateSessionTitle(sessionId: string, title: string): Promise<void>;
 }

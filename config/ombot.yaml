@@ -21,6 +21,17 @@ logging:
   level: info
   pretty: true
 
+# 命令执行环境配置
+execution:
+  # mode: host | docker
+  # host - 在 OMBot 进程所在环境执行（默认）
+  # docker - 在指定容器中执行（需预先创建）
+  mode: host
+  # docker 模式配置（mode: docker 时生效）
+  # docker_container: "ombot-sandbox"
+  # docker_options:
+  #   workdir: "/workspace"
+
 paths:
   data_dir: "./data"
   workspace_dir: "./workspace"

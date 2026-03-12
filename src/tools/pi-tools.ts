@@ -64,6 +64,9 @@ import { getProcessStatusTool } from "./local/process";
 import { getCpuUsageTool, getMemoryUsageTool, getDiskUsageTool } from "./local/resource";
 import { getPortStatusTool, checkHttpEndpointTool } from "./local/network";
 import { createBashTool } from "./local/bash";
+import { createReadTool } from "./local/read";
+import { createEditTool } from "./local/edit";
+import { createWriteTool } from "./local/write";
 import { createGrepTool } from "./local/grep";
 import { createFindTool } from "./local/find";
 
@@ -93,13 +96,16 @@ export function createPiLocalReadOnlyTools(): AgentTool[] {
 }
 
 /**
- * 创建所有工具（只读 + bash/grep/find）。
- * cwd 参数用于 bash/grep/find 的工作目录。
+ * 创建所有工具（只读 + bash/read/edit/write/grep/find）。
+ * cwd 参数用于 bash/read/edit/write/grep/find 的工作目录。
  */
 export function createAllPiTools(cwd: string): AgentTool[] {
     return [
         ...createPiLocalReadOnlyTools(),
         createBashTool(cwd),
+        createReadTool(cwd),
+        createEditTool(cwd),
+        createWriteTool(cwd),
         createGrepTool(cwd),
         createFindTool(cwd),
     ];

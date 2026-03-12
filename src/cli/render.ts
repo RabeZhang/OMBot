@@ -33,25 +33,38 @@ export function renderGatewayEvent(event: GatewayEvent): string | null {
   }
 }
 
-export function renderSessionSummaries(sessions: SessionSummary[]): string {
+export function renderSessionSummaries(
+  sessions: SessionSummary[],
+  options?: { limit?: number; total?: number },
+): string {
   if (sessions.length === 0) {
     return "当前还没有会话。";
   }
 
-  return sessions
-    .map((session, index) => {
-      const title = session.title ? ` ${session.title}` : "";
-      return `${index + 1}. ${session.sessionId} [${session.type}/${session.status}]${title}`;
-    })
-    .join("\n");
+  const lines = sessions.map((session, index) => {
+    const title = session.title ? ` | ${session.title}` : "";
+    return `${index + 1}. ${session.sessionId} [${session.type}/${session.status}]${title}`;
+  });
+
+  // 添加分页提示
+  if (options?.total !== undefined && options.total > sessions.length) {
+    lines.push(`\n[共 ${options.total} 个会话，显示前 ${sessions.length} 个。使用 /sessions all 查看全部]`);
+  }
+
+  return lines.join("\n");
 }
 
 export function renderHelp(): string {
   return [
     "可用命令：",
     "/help                查看帮助",
-    "/sessions            列出当前会话",
-    "/use <sessionId>     切换到指定会话",
+    "/sessions [n|all]    列出当前会话（默认前 10 个）",
+    "                       /sessions     - 显示前 10 个",
+    "                       /sessions 20  - 显示前 20 个",
+    "                       /sessions all - 显示全部",
+    "/use <id|number>     切换到指定会话",
+    "                       /use 1        - 切换到第 1 个会话",
+    "                       /use sess_xxx - 用 sessionId 切换",
     "/clear               清除当前会话绑定",
     "/monitor             查看最近的监控告警历史",
     "/expand [n]          展开第 n 次（默认最近一次）折叠的工具调用详情",

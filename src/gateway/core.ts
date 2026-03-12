@@ -1,8 +1,9 @@
 import type { AgentRuntimeAdapter, AgentRuntimeInput } from "../agent/types";
 import { createId } from "../shared/ids";
 import { nowIsoString } from "../shared/time";
-import type { SessionStore, TranscriptStore } from "../memory/types";
+import type { SessionRecord, SessionStore, TranscriptStore } from "../memory/types";
 import type { AuditStore } from "../audit/types";
+import type { LlmClient } from "../llm/types";
 import type {
   ApprovalCenter,
   ApprovalResolutionInput,
@@ -24,6 +25,7 @@ interface GatewayCoreOptions {
   promptContext?: {
     systemPrompt?: string;
   };
+  llmClient?: LlmClient;
 }
 
 class AsyncEventQueue {
@@ -88,6 +90,7 @@ export class GatewayCore implements Gateway {
   private readonly promptContext: {
     systemPrompt?: string;
   };
+  private readonly llmClient?: LlmClient;
 
   constructor(options: GatewayCoreOptions) {
     this.sessionStore = options.sessionStore;
@@ -97,16 +100,25 @@ export class GatewayCore implements Gateway {
     this.agentRuntime = options.agentRuntime;
     this.auditStore = options.auditStore;
     this.promptContext = options.promptContext ?? {};
+    this.llmClient = options.llmClient;
   }
 
   async sendUserMessage(input: UserMessageInput): Promise<GatewayRunHandle> {
-    const session = input.sessionId
-      ? await this.getRequiredSession(input.sessionId)
-      : await this.sessionStore.create({
+    let session: SessionRecord;
+    if (input.sessionId) {
+      session = await this.getRequiredSession(input.sessionId);
+      // 如果 session 没有 title 且传入了 title，则更新 session
+      if (!session.title && input.title) {
+        session.title = input.title;
+        await this.sessionStore.update(session);
+      }
+    } else {
+      session = await this.sessionStore.create({
         type: "interactive",
         title: input.title,
         channel: "cli",
       });
+    }
 
     const runId = createId("run");
     const queue = new AsyncEventQueue();
@@ -156,10 +168,15 @@ export class GatewayCore implements Gateway {
     // 事件通过 eventBus → AsyncEventQueue 实时推出，REPL 可逐一消费。
     setImmediate(async () => {
       try {
-        await this.runAgent(session.sessionId, runId, {
-          kind: "user_message",
-          content: input.content,
-        });
+        await this.runAgent(
+          session.sessionId,
+          runId,
+          {
+            kind: "user_message",
+            content: input.content,
+          },
+          input.content, // 第一次用户输入，用于生成 session 标题（只在第一次对话时使用）
+        );
       } catch (err) {
         await this.eventBus.publish({
           type: "gateway.run.error",
@@ -248,8 +265,58 @@ export class GatewayCore implements Gateway {
     return session;
   }
 
-  private async runAgent(sessionId: string, runId: string, input: AgentRuntimeInput): Promise<void> {
+  async updateSessionTitle(sessionId: string, title: string): Promise<void> {
     const session = await this.getRequiredSession(sessionId);
+    if (!session.title) {
+      session.title = title;
+      await this.sessionStore.update(session);
+    }
+  }
+
+  /**
+   * 基于用户第一次输入和助手第一次回复生成会话标题。
+   *
+   * 设计原则：
+   * 1. 只在 session 第一次有对话时生成（通过 !session.title 控制）
+   * 2. 只使用第一次的用户输入，不使用后续对话内容
+   * 3. 如有助手回复摘要，结合使用（但仍是第一次回复）
+   * 4. 失败时不阻断主流程，返回 null
+   *
+   * 这样做的好处：
+   * - 避免上下文过长导致资源浪费
+   * - 第一次对话通常已包含用户意图
+   * - 简单高效，不累积历史记录
+   */
+  private async generateSessionTitle(firstUserContent: string, firstAssistantSummary?: string): Promise<string | null> {
+    if (!this.llmClient) return null;
+
+    try {
+      const prompt = firstAssistantSummary
+        ? `用户输入: ${firstUserContent}\n助手回复摘要: ${firstAssistantSummary}\n\n请基于以上内容，生成一个简短的会话标题（不超过15个字），直接返回标题文本，不要有任何前缀或解释。`
+        : `用户输入: ${firstUserContent}\n\n请基于以上内容，生成一个简短的会话标题（不超过15个字），直接返回标题文本，不要有任何前缀或解释。`;
+
+      const result = await this.llmClient.generateText({
+        messages: [
+          { role: "system", content: "你是一个会话标题生成器。请根据用户输入生成简洁的标题，不超过15个字。直接返回标题，不要有任何额外内容。" },
+          { role: "user", content: prompt },
+        ],
+      });
+
+      // 清理并截断标题
+      let title = result.content.trim();
+      if (title.length > 20) {
+        title = title.slice(0, 17) + "...";
+      }
+      return title || null;
+    } catch {
+      // 生成失败时不阻断主流程
+      return null;
+    }
+  }
+
+  private async runAgent(sessionId: string, runId: string, input: AgentRuntimeInput, userContent?: string): Promise<void> {
+    const session = await this.getRequiredSession(sessionId);
+    let assistantSummary: string | undefined;
 
     // 这里先把 Gateway 和 Agent 事件链打通，PromptContext 细化会在真实运行时接入时继续完善。
     for await (const event of this.agentRuntime.run({
@@ -328,6 +395,21 @@ export class GatewayCore implements Gateway {
             summary: event.summary,
           },
         });
+        assistantSummary = event.summary;
+      }
+
+      if (event.type === "agent.end") {
+        // 只在 session 还没有标题时生成（即第一次对话）
+        // 使用第一次的用户输入 + 第一次的助手回复摘要
+        // 避免使用完整对话历史，防止上下文过长和资源浪费
+        if (!session.title && userContent) {
+          setImmediate(async () => {
+            const generatedTitle = await this.generateSessionTitle(userContent, assistantSummary);
+            if (generatedTitle) {
+              await this.updateSessionTitle(sessionId, generatedTitle);
+            }
+          });
+        }
       }
 
       await this.eventBus.publish(event);
