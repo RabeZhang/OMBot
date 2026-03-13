@@ -10,6 +10,22 @@ describe("parseCliCommand", () => {
     expect(parseCliCommand("/sessions 20")).toEqual({ type: "sessions", limit: 20 });
     expect(parseCliCommand("/sessions all")).toEqual({ type: "sessions", limit: "all" });
     expect(parseCliCommand("/clear")).toEqual({ type: "clear" });
+    expect(parseCliCommand("/events")).toEqual({ type: "events", action: "list" });
+    expect(parseCliCommand("/events show test.json")).toEqual({
+      type: "events",
+      action: "show",
+      filename: "test.json",
+    });
+    expect(parseCliCommand("/event now 检查 nginx")).toEqual({
+      type: "event",
+      action: "now",
+      content: "检查 nginx",
+    });
+    expect(parseCliCommand("/event rm test.json")).toEqual({
+      type: "event",
+      action: "rm",
+      filename: "test.json",
+    });
     expect(parseCliCommand("/exit")).toEqual({ type: "exit" });
     expect(parseCliCommand("/quit")).toEqual({ type: "exit" });
     expect(parseCliCommand("/use sess_123")).toEqual({
@@ -82,5 +98,7 @@ describe("render helpers", () => {
     expect(renderSessionSummaries([])).toBe("当前还没有会话。");
     expect(renderHelp()).toContain("/sessions");
     expect(renderHelp()).toContain("/use");
+    expect(renderHelp()).toContain("/events");
+    expect(renderHelp()).toContain("/event now");
   });
 });

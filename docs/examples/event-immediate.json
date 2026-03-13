@@ -1,0 +1,8 @@
+{
+  "type": "immediate",
+  "text": "收到一个新的外部告警，请检查 nginx 状态",
+  "profile": "readonly",
+  "metadata": {
+    "source": "manual"
+  }
+}

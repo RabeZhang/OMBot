@@ -14,6 +14,7 @@ import { createAllPiTools } from "./tools/pi-tools";
 import { createPiModel } from "./llm/pi-model";
 import { MonitorEngine } from "./monitor/engine";
 import { SqliteAuditStore } from "./audit/sqlite-store";
+import { EventsWatcher } from "./events/watcher";
 
 async function ensureRuntimeDirs(paths: { dataDir: string; transcriptsDir: string; auditDbPath: string }) {
   await fs.mkdir(paths.dataDir, { recursive: true });
@@ -67,6 +68,15 @@ export async function bootstrap(projectRoot: string) {
     rules: config.monitors.monitors,
   });
 
+  const eventsWatcher = config.ombot.events.enabled
+    ? new EventsWatcher({
+        eventsDir: config.ombot.events.dir,
+        gateway,
+        defaultTimezone: config.ombot.events.defaultTimezone,
+        startupScan: config.ombot.events.startupScan,
+      })
+    : null;
+
   return {
     config,
     piModel,
@@ -74,6 +84,7 @@ export async function bootstrap(projectRoot: string) {
     promptContext,
     gateway,
     monitorEngine,
+    eventsWatcher,
     auditStore,
   };
 }

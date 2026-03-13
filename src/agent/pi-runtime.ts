@@ -168,15 +168,30 @@ export class PiAgentRuntimeAdapter implements AgentRuntimeAdapter {
             return input.input.content;
         }
 
-        // 监控事件构造为结构化提示
+        if (input.input.kind === "monitor_event") {
+            const event = input.input.event;
+            return [
+                "请基于以下监控事件给出简洁分析：",
+                `规则 ID: ${event.ruleId}`,
+                `事件类型: ${event.type}`,
+                `严重级别: ${event.severity}`,
+                `摘要: ${event.summary}`,
+                `详情: ${JSON.stringify(event.details ?? {})}`,
+            ].join("\n");
+        }
+
         const event = input.input.event;
         return [
-            "请基于以下监控事件给出简洁分析：",
-            `规则 ID: ${event.ruleId}`,
+            "请处理以下定时/调度事件：",
+            `事件 ID: ${event.eventId}`,
+            `来源文件: ${event.sourceFile}`,
             `事件类型: ${event.type}`,
-            `严重级别: ${event.severity}`,
-            `摘要: ${event.summary}`,
-            `详情: ${JSON.stringify(event.details ?? {})}`,
+            `工具权限档位: ${event.profile}`,
+            `触发时间: ${event.triggeredAt}`,
+            ...(event.scheduledAt ? [`计划时间/计划表达式: ${event.scheduledAt}`] : []),
+            ...(event.timezone ? [`时区: ${event.timezone}`] : []),
+            `任务内容: ${event.text}`,
+            `附加元数据: ${JSON.stringify(event.metadata ?? {})}`,
         ].join("\n");
     }
 }

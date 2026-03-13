@@ -56,6 +56,8 @@ describe("FileSystemConfigLoader", () => {
     expect(loaded.llm.timeoutMs).toBe(90000);
     expect(path.isAbsolute(loaded.ombot.paths.dataDir)).toBe(true);
     expect(path.isAbsolute(loaded.ombot.agent.systemPromptTemplate)).toBe(true);
+    expect(path.isAbsolute(loaded.ombot.events.dir)).toBe(true);
+    expect(loaded.ombot.events.defaultTimezone).toBe("Asia/Shanghai");
     expect(loaded.monitors.monitors.length).toBeGreaterThanOrEqual(2);
     expect(loaded.toolPolicy.profiles.readonly.defaultAction).toBe("deny");
   });
@@ -87,6 +89,12 @@ gateway:
 logging:
   level: info
   pretty: true
+events:
+  enabled: true
+  dir: "./workspace/events"
+  default_timezone: "Asia/Shanghai"
+  max_queued_per_session: 3
+  startup_scan: true
 paths:
   data_dir: "./data"
   workspace_dir: "./workspace"
@@ -145,6 +153,12 @@ gateway:
 logging:
   level: info
   pretty: true
+events:
+  enabled: true
+  dir: "./workspace/events"
+  default_timezone: "Asia/Shanghai"
+  max_queued_per_session: 3
+  startup_scan: true
 paths:
   data_dir: "./data"
   workspace_dir: "./workspace"

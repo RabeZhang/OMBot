@@ -54,6 +54,21 @@ export const ombotConfigSchema = z
         dockerOptions: z.record(z.string(), z.unknown()).optional(),
       })
       .default({ mode: "host" }),
+    events: z
+      .object({
+        enabled: z.boolean().default(false),
+        dir: z.string().min(1).default("./workspace/events"),
+        defaultTimezone: z.string().min(1).default("UTC"),
+        maxQueuedPerSession: z.number().int().positive().default(5),
+        startupScan: z.boolean().default(true),
+      })
+      .default({
+        enabled: false,
+        dir: "./workspace/events",
+        defaultTimezone: "UTC",
+        maxQueuedPerSession: 5,
+        startupScan: true,
+      }),
     paths: z.object({
       dataDir: z.string().min(1),
       workspaceDir: z.string().min(1),

@@ -26,6 +26,8 @@ export function renderGatewayEvent(event: GatewayEvent): string | null {
       return `[alert] ${event.summary}`;
     case "monitor.recovered":
       return `[recovered] ${event.summary}`;
+    case "scheduled_event.accepted":
+      return `[event] ${event.sourceFile}: ${event.summary}`;
     case "approval.required":
       return `[approval] ${event.toolName}: ${event.reason}`;
     case "approval.resolved":
@@ -66,6 +68,10 @@ export function renderHelp(): string {
     "                       /use 1        - 切换到第 1 个会话",
     "                       /use sess_xxx - 用 sessionId 切换",
     "/clear               清除当前会话绑定",
+    "/events              列出当前事件文件",
+    "/events show <file>  查看事件文件内容",
+    "/event now <text>    创建一个 immediate 事件",
+    "/event rm <file>     删除一个事件文件",
     "/monitor             查看最近的监控告警历史",
     "/expand [n]          展开第 n 次（默认最近一次）折叠的工具调用详情",
     "/exit                退出 CLI",

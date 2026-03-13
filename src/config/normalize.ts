@@ -40,6 +40,10 @@ export function normalizeOmbotConfigPaths(config: OmbotConfig, projectRoot: stri
       systemPromptTemplate: resolvePath(projectRoot, config.agent.systemPromptTemplate),
       workspaceFiles: config.agent.workspaceFiles.map((file) => resolvePath(projectRoot, file)),
     },
+    events: {
+      ...config.events,
+      dir: resolvePath(projectRoot, config.events.dir),
+    },
     paths: {
       dataDir: resolvePath(projectRoot, config.paths.dataDir),
       workspaceDir: resolvePath(projectRoot, config.paths.workspaceDir),

@@ -35,6 +35,25 @@ function buildMessages(input: AgentRunInput, toolExecutions: ToolExecutionRecord
     return messages;
   }
 
+  if (input.input.kind === "scheduled_event") {
+    messages.push({
+      role: "user",
+      content: [
+        "请处理以下定时/调度事件：",
+        `事件 ID: ${input.input.event.eventId}`,
+        `来源文件: ${input.input.event.sourceFile}`,
+        `事件类型: ${input.input.event.type}`,
+        `工具权限档位: ${input.input.event.profile}`,
+        `触发时间: ${input.input.event.triggeredAt}`,
+        ...(input.input.event.scheduledAt ? [`计划时间/计划表达式: ${input.input.event.scheduledAt}`] : []),
+        ...(input.input.event.timezone ? [`时区: ${input.input.event.timezone}`] : []),
+        `任务内容: ${input.input.event.text}`,
+        `附加元数据: ${JSON.stringify(input.input.event.metadata ?? {})}`,
+      ].join("\n"),
+    });
+    return messages;
+  }
+
   messages.push({
     role: "user",
     content: [

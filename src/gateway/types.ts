@@ -15,6 +15,20 @@ export interface MonitorEventInput {
   details?: Record<string, unknown>;
 }
 
+export interface ScheduledEventInput {
+  eventId: string;
+  sourceFile: string;
+  type: "one-shot" | "periodic" | "immediate";
+  text: string;
+  sessionId?: string;
+  title?: string;
+  profile: string;
+  scheduledAt?: string;
+  triggeredAt: string;
+  timezone?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface ApprovalRequest {
   approvalId: string;
   sessionId: string;
@@ -55,6 +69,7 @@ export type GatewayEvent =
   | { type: "agent.end"; sessionId: string; runId: string }
   | { type: "monitor.alert"; sessionId: string; runId: string; summary: string }
   | { type: "monitor.recovered"; sessionId: string; runId: string; summary: string }
+  | { type: "scheduled_event.accepted"; sessionId: string; runId: string; eventId: string; sourceFile: string; summary: string }
   | { type: "approval.required"; sessionId: string; approvalId: string; toolName: string; reason: string }
   | { type: "approval.resolved"; sessionId: string; approvalId: string; action: "approve_once" | "deny" };
 
@@ -78,6 +93,7 @@ export interface ApprovalCenter {
 export interface Gateway {
   sendUserMessage(input: UserMessageInput): Promise<GatewayRunHandle>;
   dispatchMonitorEvent(input: MonitorEventInput): Promise<GatewayRunHandle>;
+  dispatchScheduledEvent(input: ScheduledEventInput): Promise<GatewayRunHandle>;
   resolveApproval(input: ApprovalResolutionInput): Promise<void>;
   listSessions(): Promise<SessionSummary[]>;
   getSession(sessionId: string): Promise<SessionSnapshot | null>;

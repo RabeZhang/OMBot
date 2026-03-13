@@ -19,10 +19,13 @@ import {
 } from "./theme";
 import { parseCliCommand } from "./commands";
 import { renderSessionSummaries, renderHelp } from "./render";
+import { createImmediateEventFile, deleteEventFile, listEventFiles, readEventFile } from "../events/files";
 
 export interface CliReplOptions {
   gateway: Gateway;
   onMonitorMessage?: (callback: (message: string, type: "alert" | "recovered" | "info") => void) => void;
+  eventsDir?: string;
+  eventsEnabled?: boolean;
 }
 
 /**
@@ -52,6 +55,10 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
       { name: "sessions", description: "列出当前会话" },
       { name: "use <id|number>", description: "切换到指定会话 (/use 1 或 /use sess_xxx)" },
       { name: "clear", description: "清除当前会话绑定" },
+      { name: "events", description: "列出当前事件文件" },
+      { name: "events show <file>", description: "查看指定事件文件内容" },
+      { name: "event now <text>", description: "创建一个 immediate 事件" },
+      { name: "event rm <file>", description: "删除指定事件文件" },
       { name: "monitor", description: "查看最近的监控告警" },
       { name: "expand", description: "展开折叠的工具调用 (可选: /expand <序号>)" },
       { name: "exit", description: "退出 CLI" },
@@ -274,6 +281,85 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
         activeSessionId = undefined;
         addTextMsg(systemMessage("已清除当前会话绑定。"));
         return;
+      }
+
+      if (command.type === "events") {
+        if (!options.eventsDir) {
+          addTextMsg(systemMessage("当前未配置 events 目录。"));
+          return;
+        }
+
+        if (command.action === "list") {
+          const files = await listEventFiles(options.eventsDir);
+          if (files.length === 0) {
+            addTextMsg(systemMessage("当前没有事件文件。"));
+            return;
+          }
+
+          addTextMsg(chalk.cyan.bold(`  ⏰ 当前 ${files.length} 个事件文件：`));
+          for (const file of files) {
+            addTextMsg(`  - ${file.filename}  ${chalk.gray(`${file.size}B ${file.updatedAt}`)}`);
+          }
+          return;
+        }
+
+        if (command.action === "show") {
+          if (!command.filename) {
+            addTextMsg(systemMessage("请提供事件文件名，例如 /events show example.json"));
+            return;
+          }
+
+          try {
+            const content = await readEventFile(options.eventsDir, command.filename);
+            addTextMsg(chalk.cyan.bold(`  ⏰ ${command.filename}`));
+            addTextMsg(content);
+          } catch (error) {
+            addTextMsg(systemMessage(`读取事件文件失败: ${error instanceof Error ? error.message : String(error)}`));
+          }
+          return;
+        }
+      }
+
+      if (command.type === "event") {
+        if (!options.eventsDir) {
+          addTextMsg(systemMessage("当前未配置 events 目录。"));
+          return;
+        }
+
+        if (command.action === "now") {
+          if (!command.content) {
+            addTextMsg(systemMessage("请提供事件内容，例如 /event now 检查 nginx 状态"));
+            return;
+          }
+
+          const filename = await createImmediateEventFile(options.eventsDir, {
+            text: command.content,
+            sessionId: activeSessionId,
+            title: command.content.slice(0, 20),
+            profile: "readonly",
+            metadata: {
+              source: "cli",
+            },
+          });
+          const extra = options.eventsEnabled ? "" : "（注意：events watcher 当前未启用，仅创建了文件）";
+          addTextMsg(systemMessage(`已创建 immediate 事件: ${filename}${extra}`));
+          return;
+        }
+
+        if (command.action === "rm") {
+          if (!command.filename) {
+            addTextMsg(systemMessage("请提供事件文件名，例如 /event rm example.json"));
+            return;
+          }
+
+          try {
+            await deleteEventFile(options.eventsDir, command.filename);
+            addTextMsg(systemMessage(`已删除事件文件: ${command.filename}`));
+          } catch (error) {
+            addTextMsg(systemMessage(`删除事件文件失败: ${error instanceof Error ? error.message : String(error)}`));
+          }
+          return;
+        }
       }
 
       if (command.type === "use") {

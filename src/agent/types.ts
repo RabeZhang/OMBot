@@ -16,6 +16,21 @@ export type AgentRuntimeInput =
         observedAt?: string;
         details?: Record<string, unknown>;
       };
+    }
+  | {
+      kind: "scheduled_event";
+      event: {
+        eventId: string;
+        sourceFile: string;
+        type: "one-shot" | "periodic" | "immediate";
+        text: string;
+        title?: string;
+        profile: string;
+        scheduledAt?: string;
+        triggeredAt: string;
+        timezone?: string;
+        metadata?: Record<string, unknown>;
+      };
     };
 
 export interface AgentRunInput {

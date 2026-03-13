@@ -32,6 +32,13 @@ execution:
   # docker_options:
   #   workdir: "/workspace"
 
+events:
+  enabled: false
+  dir: "./workspace/events"
+  default_timezone: "Asia/Shanghai"
+  max_queued_per_session: 5
+  startup_scan: true
+
 paths:
   data_dir: "./data"
   workspace_dir: "./workspace"

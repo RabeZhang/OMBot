@@ -27,7 +27,7 @@ export class FakeAgentRuntimeAdapter implements AgentRuntimeAdapter {
         runId,
         summary: "用户消息已进入 Agent 运行时处理链路。",
       };
-    } else {
+    } else if (input.input.kind === "monitor_event") {
       const content = `已分析监控事件：${input.input.event.summary}`;
 
       yield {
@@ -42,6 +42,22 @@ export class FakeAgentRuntimeAdapter implements AgentRuntimeAdapter {
         sessionId: session.sessionId,
         runId,
         summary: "监控事件已进入 Agent 运行时处理链路。",
+      };
+    } else {
+      const content = `已处理定时事件：${input.input.event.text}`;
+
+      yield {
+        type: "agent.message_update",
+        sessionId: session.sessionId,
+        runId,
+        content,
+      };
+
+      yield {
+        type: "agent.summary",
+        sessionId: session.sessionId,
+        runId,
+        summary: "定时事件已进入 Agent 运行时处理链路。",
       };
     }
 

@@ -58,6 +58,16 @@ describe("buildPromptContext", () => {
         level: "info",
         pretty: true,
       },
+      execution: {
+        mode: "host",
+      },
+      events: {
+        enabled: false,
+        dir: path.join(root, "workspace/events"),
+        defaultTimezone: "Asia/Shanghai",
+        maxQueuedPerSession: 5,
+        startupScan: true,
+      },
       paths: {
         dataDir: path.join(root, "data"),
         workspaceDir: path.join(root, "workspace"),

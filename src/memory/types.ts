@@ -47,6 +47,7 @@ export type TranscriptEntryKind =
   | "tool_call"
   | "tool_result"
   | "monitor_event"
+  | "scheduled_event"
   | "approval"
   | "summary";
 

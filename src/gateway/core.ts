@@ -12,6 +12,7 @@ import type {
   GatewayEvent,
   GatewayRunHandle,
   MonitorEventInput,
+  ScheduledEventInput,
   UserMessageInput,
 } from "./types";
 
@@ -231,6 +232,110 @@ export class GatewayCore implements Gateway {
 
     return {
       sessionId,
+      runId,
+      stream: queue.iterate(),
+    };
+  }
+
+  async dispatchScheduledEvent(input: ScheduledEventInput): Promise<GatewayRunHandle> {
+    let session: SessionRecord;
+    if (input.sessionId) {
+      session = await this.getRequiredSession(input.sessionId);
+    } else {
+      session = await this.sessionStore.create({
+        type: "system",
+        title: input.title,
+        channel: "internal",
+      });
+    }
+
+    const runId = createId("run");
+    const queue = new AsyncEventQueue();
+    const unsubscribe = this.eventBus.subscribe(async (event) => {
+      if ("runId" in event && event.runId !== runId) {
+        return;
+      }
+
+      if (event.sessionId !== session.sessionId) {
+        return;
+      }
+
+      queue.push(event);
+
+      if (event.type === "gateway.run.completed") {
+        unsubscribe();
+        queue.close();
+      }
+    });
+
+    await this.transcriptStore.append({
+      id: createId("entry"),
+      sessionId: session.sessionId,
+      kind: "scheduled_event",
+      createdAt: nowIsoString(),
+      payload: {
+        eventId: input.eventId,
+        sourceFile: input.sourceFile,
+        eventType: input.type,
+        text: input.text,
+        profile: input.profile,
+        scheduledAt: input.scheduledAt,
+        triggeredAt: input.triggeredAt,
+        timezone: input.timezone,
+        metadata: input.metadata,
+      },
+    });
+
+    await this.eventBus.publish({
+      type: "gateway.run.started",
+      sessionId: session.sessionId,
+      runId,
+    });
+
+    await this.eventBus.publish({
+      type: "scheduled_event.accepted",
+      sessionId: session.sessionId,
+      runId,
+      eventId: input.eventId,
+      sourceFile: input.sourceFile,
+      summary: input.text,
+    });
+
+    setImmediate(async () => {
+      try {
+        await this.runAgent(session.sessionId, runId, {
+          kind: "scheduled_event",
+          event: {
+            eventId: input.eventId,
+            sourceFile: input.sourceFile,
+            type: input.type,
+            text: input.text,
+            title: input.title,
+            profile: input.profile,
+            scheduledAt: input.scheduledAt,
+            triggeredAt: input.triggeredAt,
+            timezone: input.timezone,
+            metadata: input.metadata,
+          },
+        });
+      } catch (err) {
+        await this.eventBus.publish({
+          type: "gateway.run.error",
+          sessionId: session.sessionId,
+          runId,
+          error: err instanceof Error ? err.message : String(err),
+        } as any);
+      } finally {
+        await this.eventBus.publish({
+          type: "gateway.run.completed",
+          sessionId: session.sessionId,
+          runId,
+        });
+      }
+    });
+
+    return {
+      sessionId: session.sessionId,
       runId,
       stream: queue.iterate(),
     };

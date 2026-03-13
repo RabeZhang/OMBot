@@ -172,4 +172,49 @@ describe("GatewayCore", () => {
     expect(events[1]).toMatchObject({ type: "monitor.alert", summary: "nginx 进程异常" });
     expect(events[2]).toMatchObject({ type: "gateway.run.completed" });
   });
+
+  it("creates system session for scheduled event and appends scheduled transcript", async () => {
+    const root = await createTempDir();
+    const eventBus = new InMemoryEventBus();
+    const approvalCenter = new InMemoryApprovalCenter({ eventBus });
+    const gateway = new GatewayCore({
+      eventBus,
+      approvalCenter,
+      agentRuntime: new FakeAgentRuntimeAdapter(),
+      sessionStore: new FileSessionStore({
+        indexFilePath: path.join(root, "data/sessions/index.json"),
+        hostId: "local-test",
+      }),
+      transcriptStore: new FileTranscriptStore({
+        transcriptsDir: path.join(root, "data/transcripts"),
+      }),
+    });
+
+    const run = await gateway.dispatchScheduledEvent({
+      eventId: "evt_daily-check",
+      sourceFile: "daily-check.json",
+      type: "periodic",
+      text: "每天巡检一次 nginx 状态",
+      profile: "readonly",
+      scheduledAt: "0 9 * * *",
+      triggeredAt: new Date().toISOString(),
+      timezone: "Asia/Shanghai",
+    });
+
+    const events = await collectEvents(run.stream);
+    const snapshot = await gateway.getSession(run.sessionId);
+
+    expect(events).toHaveLength(7);
+    expect(events[0]).toMatchObject({ type: "gateway.run.started" });
+    expect(events[1]).toMatchObject({ type: "scheduled_event.accepted", sourceFile: "daily-check.json" });
+    expect(events[2]).toMatchObject({ type: "agent.start" });
+    expect(events[3]).toMatchObject({ type: "agent.message_update" });
+    expect(events[6]).toMatchObject({ type: "gateway.run.completed" });
+    expect(snapshot?.session.type).toBe("system");
+    expect(snapshot?.transcript[0]?.kind).toBe("scheduled_event");
+    expect(snapshot?.transcript[1]?.payload).toMatchObject({
+      role: "assistant",
+      content: "已处理定时事件：每天巡检一次 nginx 状态",
+    });
+  });
 });

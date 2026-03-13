@@ -4,11 +4,13 @@
  */
 
 export interface CliCommand {
-  type: "help" | "sessions" | "use" | "clear" | "exit" | "message";
+  type: "help" | "sessions" | "use" | "clear" | "exit" | "events" | "event" | "message";
   sessionId?: string;
   sessionIndex?: number; // 用于 /use 1, /use 2 这样的编号切换
   content?: string;
   limit?: number | "all";
+  action?: "list" | "show" | "now" | "rm";
+  filename?: string;
 }
 
 export function parseCliCommand(line: string): CliCommand {
@@ -32,6 +34,31 @@ export function parseCliCommand(line: string): CliCommand {
 
   if (trimmed === "/clear") {
     return { type: "clear" };
+  }
+
+  if (trimmed === "/events") {
+    return { type: "events", action: "list" };
+  }
+
+  if (trimmed.startsWith("/events show ")) {
+    const filename = trimmed.slice("/events show ".length).trim();
+    return { type: "events", action: "show", filename };
+  }
+
+  if (trimmed.startsWith("/event now ")) {
+    return {
+      type: "event",
+      action: "now",
+      content: trimmed.slice("/event now ".length).trim(),
+    };
+  }
+
+  if (trimmed.startsWith("/event rm ")) {
+    return {
+      type: "event",
+      action: "rm",
+      filename: trimmed.slice("/event rm ".length).trim(),
+    };
   }
 
   if (trimmed === "/exit" || trimmed === "/quit") {
