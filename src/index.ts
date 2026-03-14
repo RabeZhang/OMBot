@@ -14,6 +14,7 @@ async function main() {
     gateway: app.gateway,
     eventsDir: app.config.ombot.events.dir,
     eventsEnabled: app.config.ombot.events.enabled,
+    subscribeGatewayEvents: (callback) => app.eventBus.subscribe(callback),
     onMonitorMessage: (callback) => {
       // 将 monitor 的消息回调注册到 TUI，所有 monitor 输出都通过此回调进入 TUI 渲染
       app.monitorEngine.onMessage = callback;

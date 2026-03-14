@@ -39,6 +39,32 @@ export async function deleteEventFile(eventsDir: string, filename: string): Prom
   await fs.unlink(path.join(eventsDir, sanitizeFilename(filename)));
 }
 
+export async function deleteEventFilesBySessionId(eventsDir: string, sessionId: string): Promise<string[]> {
+  await ensureEventsDir(eventsDir);
+  const entries = await fs.readdir(eventsDir, { withFileTypes: true });
+  const deleted: string[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) {
+      continue;
+    }
+
+    const fullPath = path.join(eventsDir, entry.name);
+    try {
+      const content = await fs.readFile(fullPath, "utf8");
+      const parsed = JSON.parse(content) as { sessionId?: string };
+      if (parsed.sessionId === sessionId) {
+        await fs.unlink(fullPath);
+        deleted.push(entry.name);
+      }
+    } catch {
+      // 忽略损坏或并发删除的文件，session 删除流程不应被单个事件文件阻塞。
+    }
+  }
+
+  return deleted;
+}
+
 export async function createImmediateEventFile(
   eventsDir: string,
   input: {
@@ -54,6 +80,62 @@ export async function createImmediateEventFile(
   const payload = {
     type: "immediate",
     text: input.text,
+    ...(input.title ? { title: input.title } : {}),
+    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+    ...(input.profile ? { profile: input.profile } : {}),
+    ...(input.metadata ? { metadata: input.metadata } : {}),
+  };
+
+  await fs.writeFile(path.join(eventsDir, filename), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return filename;
+}
+
+export async function createOneShotEventFile(
+  eventsDir: string,
+  input: {
+    text: string;
+    at: string;
+    title?: string;
+    sessionId?: string;
+    profile?: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<string> {
+  await ensureEventsDir(eventsDir);
+  const filename = `${makeTimestampPrefix()}-one-shot.json`;
+  const payload = {
+    type: "one-shot",
+    text: input.text,
+    at: input.at,
+    ...(input.title ? { title: input.title } : {}),
+    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+    ...(input.profile ? { profile: input.profile } : {}),
+    ...(input.metadata ? { metadata: input.metadata } : {}),
+  };
+
+  await fs.writeFile(path.join(eventsDir, filename), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return filename;
+}
+
+export async function createPeriodicEventFile(
+  eventsDir: string,
+  input: {
+    text: string;
+    schedule: string;
+    timezone: string;
+    title?: string;
+    sessionId?: string;
+    profile?: string;
+    metadata?: Record<string, unknown>;
+  },
+): Promise<string> {
+  await ensureEventsDir(eventsDir);
+  const filename = `${makeTimestampPrefix()}-periodic.json`;
+  const payload = {
+    type: "periodic",
+    text: input.text,
+    schedule: input.schedule,
+    timezone: input.timezone,
     ...(input.title ? { title: input.title } : {}),
     ...(input.sessionId ? { sessionId: input.sessionId } : {}),
     ...(input.profile ? { profile: input.profile } : {}),

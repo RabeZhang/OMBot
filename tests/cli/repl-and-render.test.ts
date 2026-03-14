@@ -10,16 +10,21 @@ describe("parseCliCommand", () => {
     expect(parseCliCommand("/sessions 20")).toEqual({ type: "sessions", limit: 20 });
     expect(parseCliCommand("/sessions all")).toEqual({ type: "sessions", limit: "all" });
     expect(parseCliCommand("/clear")).toEqual({ type: "clear" });
+    expect(parseCliCommand("/session rm 1")).toEqual({
+      type: "session",
+      action: "rm",
+      sessionIndex: 1,
+    });
+    expect(parseCliCommand("/session rm sess_123")).toEqual({
+      type: "session",
+      action: "rm",
+      sessionId: "sess_123",
+    });
     expect(parseCliCommand("/events")).toEqual({ type: "events", action: "list" });
     expect(parseCliCommand("/events show test.json")).toEqual({
       type: "events",
       action: "show",
       filename: "test.json",
-    });
-    expect(parseCliCommand("/event now 检查 nginx")).toEqual({
-      type: "event",
-      action: "now",
-      content: "检查 nginx",
     });
     expect(parseCliCommand("/event rm test.json")).toEqual({
       type: "event",
@@ -98,7 +103,8 @@ describe("render helpers", () => {
     expect(renderSessionSummaries([])).toBe("当前还没有会话。");
     expect(renderHelp()).toContain("/sessions");
     expect(renderHelp()).toContain("/use");
+    expect(renderHelp()).toContain("/session rm");
     expect(renderHelp()).toContain("/events");
-    expect(renderHelp()).toContain("/event now");
+    expect(renderHelp()).toContain("/event rm");
   });
 });

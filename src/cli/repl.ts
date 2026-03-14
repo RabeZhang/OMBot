@@ -10,6 +10,7 @@ import {
 } from "@mariozechner/pi-tui";
 
 import type { Gateway } from "../gateway/types";
+import type { GatewayEvent } from "../gateway/types";
 import {
   editorTheme,
   markdownTheme,
@@ -19,11 +20,16 @@ import {
 } from "./theme";
 import { parseCliCommand } from "./commands";
 import { renderSessionSummaries, renderHelp } from "./render";
-import { createImmediateEventFile, deleteEventFile, listEventFiles, readEventFile } from "../events/files";
+import {
+  deleteEventFile,
+  listEventFiles,
+  readEventFile,
+} from "../events/files";
 
 export interface CliReplOptions {
   gateway: Gateway;
   onMonitorMessage?: (callback: (message: string, type: "alert" | "recovered" | "info") => void) => void;
+  subscribeGatewayEvents?: (callback: (event: GatewayEvent) => void | Promise<void>) => () => void;
   eventsDir?: string;
   eventsEnabled?: boolean;
 }
@@ -54,10 +60,10 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
       { name: "help", description: "查看帮助" },
       { name: "sessions", description: "列出当前会话" },
       { name: "use <id|number>", description: "切换到指定会话 (/use 1 或 /use sess_xxx)" },
+      { name: "session rm <id|number>", description: "删除指定会话并清理其 events" },
       { name: "clear", description: "清除当前会话绑定" },
       { name: "events", description: "列出当前事件文件" },
       { name: "events show <file>", description: "查看指定事件文件内容" },
-      { name: "event now <text>", description: "创建一个 immediate 事件" },
       { name: "event rm <file>", description: "删除指定事件文件" },
       { name: "monitor", description: "查看最近的监控告警" },
       { name: "expand", description: "展开折叠的工具调用 (可选: /expand <序号>)" },
@@ -100,6 +106,7 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
 
   // ── 折叠工具区历史（用于 /expand 展开）──
   const collapsedRuns: Array<{ label: string; lines: string[] }> = [];
+  const scheduledRunSessions = new Map<string, string>();
 
   // 欢迎信息
   addTextMsg(systemMessage("OMBot CLI 已启动，输入 /help 查看命令。"));
@@ -110,6 +117,61 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
       if (monitorHistory.length > MAX_MONITOR_HISTORY) monitorHistory.shift();
     });
   }
+
+  const unsubscribeGatewayEvents = options.subscribeGatewayEvents?.((event) => {
+    if (event.type === "scheduled_event.accepted") {
+      scheduledRunSessions.set(event.runId, event.sessionId);
+      if (activeSessionId === event.sessionId) {
+        addTextMsg(chalk.cyan(`  ⏰ 定时事件触发: ${event.sourceFile}`));
+      } else {
+        addTextMsg(chalk.gray(`  ⏰ 会话 ${event.sessionId} 有定时事件触发，切换到该会话查看详情。`));
+      }
+      return;
+    }
+
+    if (!("runId" in event)) {
+      return;
+    }
+
+    const runSessionId = scheduledRunSessions.get(event.runId);
+    if (!runSessionId) {
+      return;
+    }
+
+    if (activeSessionId !== runSessionId) {
+      if (event.type === "gateway.run.completed") {
+        scheduledRunSessions.delete(event.runId);
+      }
+      return;
+    }
+
+    switch (event.type) {
+      case "agent.start":
+        addTextMsg(chalk.gray("  ⏳ 正在执行定时任务..."));
+        break;
+      case "tool.call":
+        addTextMsg(toolCallStyle(`  ▶ ${event.toolName}  ${chalk.gray(JSON.stringify(event.toolInput))}`));
+        break;
+      case "tool.result": {
+        const outputRaw = typeof event.toolOutput === "string"
+          ? event.toolOutput
+          : JSON.stringify(event.toolOutput ?? "");
+        const preview = outputRaw.length > 120 ? `${outputRaw.slice(0, 117)}...` : outputRaw;
+        addTextMsg(toolResultStyle(`    └ ${preview}`));
+        break;
+      }
+      case "agent.message_update":
+        addMarkdownMsg(event.content);
+        break;
+      case "agent.summary":
+        addTextMsg(systemMessage(`[event-summary] ${event.summary}`));
+        break;
+      case "gateway.run.completed":
+        scheduledRunSessions.delete(event.runId);
+        addTextMsg(chalk.green("  ✅ 定时任务执行完成"));
+        break;
+    }
+  });
 
   // ── 渐进式披露：处理 Agent 运行流 ──
   async function handleAgentMessage(content: string) {
@@ -326,26 +388,6 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
           return;
         }
 
-        if (command.action === "now") {
-          if (!command.content) {
-            addTextMsg(systemMessage("请提供事件内容，例如 /event now 检查 nginx 状态"));
-            return;
-          }
-
-          const filename = await createImmediateEventFile(options.eventsDir, {
-            text: command.content,
-            sessionId: activeSessionId,
-            title: command.content.slice(0, 20),
-            profile: "readonly",
-            metadata: {
-              source: "cli",
-            },
-          });
-          const extra = options.eventsEnabled ? "" : "（注意：events watcher 当前未启用，仅创建了文件）";
-          addTextMsg(systemMessage(`已创建 immediate 事件: ${filename}${extra}`));
-          return;
-        }
-
         if (command.action === "rm") {
           if (!command.filename) {
             addTextMsg(systemMessage("请提供事件文件名，例如 /event rm example.json"));
@@ -456,6 +498,28 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
                 }
                 break;
               }
+
+              case "scheduled_event": {
+                // 先处理之前累积的工具调用
+                if (currentToolRun.length > 0) {
+                  const totalElapsed = Math.round((Date.now() - toolRunStartTime) / 100) / 10;
+                  const runIndex = collapsedRuns.length + 1;
+                  const expandedLines = currentToolRun.flatMap((t) => [
+                    toolCallStyle(`  ▶ ${t.name}  ${chalk.gray(t.inputSummary)}`),
+                    ...(t.resultSummary ? [toolResultStyle(`    └ ${t.resultSummary}`)] : []),
+                  ]);
+                  collapsedRuns.push({ label: `第 ${runIndex} 次`, lines: expandedLines });
+                  const hint = chalk.gray(` (输入 /expand ${runIndex} 展开)`);
+                  const summaryLine = chalk.gray(`  ▼ ${currentToolRun.length} 个工具调用，耗时 ${totalElapsed}s`) + hint;
+                  messagesContainer.addChild(new Text(summaryLine, 0, 0));
+                  currentToolRun = [];
+                }
+
+                const eventType = String(entry.payload.eventType ?? "unknown");
+                const text = String(entry.payload.text ?? "");
+                messagesContainer.addChild(new Text(chalk.cyan(`  ⏰ [${eventType}] ${text}`), 0, 0));
+                break;
+              }
             }
           }
 
@@ -480,6 +544,39 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
 
         tui.requestRender();
         addTextMsg(systemMessage(`已切换到会话: ${activeSessionId}`));
+        return;
+      }
+
+      if (command.type === "session" && command.action === "rm") {
+        let targetSessionId: string | undefined;
+        if (command.sessionIndex !== undefined) {
+          if (sessionListCache.length === 0) {
+            const allSessions = await options.gateway.listSessions();
+            sessionListCache = allSessions.map(s => ({ sessionId: s.sessionId, title: s.title }));
+          }
+          const idx = command.sessionIndex - 1;
+          if (idx < 0 || idx >= sessionListCache.length) {
+            addTextMsg(systemMessage(`无效的编号: ${command.sessionIndex}，当前共有 ${sessionListCache.length} 个会话`));
+            return;
+          }
+          targetSessionId = sessionListCache[idx]!.sessionId;
+        } else if (command.sessionId) {
+          targetSessionId = command.sessionId;
+        }
+
+        if (!targetSessionId) {
+          addTextMsg(systemMessage("请提供 sessionId 或编号，例如 /session rm 1"));
+          return;
+        }
+
+        await options.gateway.deleteSession(targetSessionId);
+        if (activeSessionId === targetSessionId) {
+          activeSessionId = undefined;
+          messagesContainer.clear();
+          collapsedRuns.length = 0;
+          tui.requestRender();
+        }
+        addTextMsg(systemMessage(`已删除会话: ${targetSessionId}（其绑定的 events 也已清理）`));
         return;
       }
 
@@ -523,4 +620,5 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
   tui.setFocus(editor);
 
   await exitPromise;
+  unsubscribeGatewayEvents?.();
 }

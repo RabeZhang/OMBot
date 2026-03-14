@@ -217,4 +217,49 @@ describe("GatewayCore", () => {
       content: "已处理定时事件：每天巡检一次 nginx 状态",
     });
   });
+
+  it("deletes session, transcript, and bound event files together", async () => {
+    const root = await createTempDir();
+    const eventsDir = path.join(root, "workspace/events");
+    await fs.mkdir(eventsDir, { recursive: true });
+
+    const eventBus = new InMemoryEventBus();
+    const approvalCenter = new InMemoryApprovalCenter({ eventBus });
+    const gateway = new GatewayCore({
+      eventBus,
+      approvalCenter,
+      agentRuntime: new FakeAgentRuntimeAdapter(),
+      sessionStore: new FileSessionStore({
+        indexFilePath: path.join(root, "data/sessions/index.json"),
+        hostId: "local-test",
+      }),
+      transcriptStore: new FileTranscriptStore({
+        transcriptsDir: path.join(root, "data/transcripts"),
+      }),
+      eventsDir,
+    });
+
+    const run = await gateway.sendUserMessage({
+      content: "帮我创建一个一分钟后的提醒",
+      title: "Event binding session",
+    });
+    await collectEvents(run.stream);
+
+    await fs.writeFile(
+      path.join(eventsDir, "bound.json"),
+      JSON.stringify({
+        type: "one-shot",
+        text: "绑定到 session",
+        at: "2026-03-14T09:00:00+08:00",
+        sessionId: run.sessionId,
+      }),
+      "utf8",
+    );
+
+    await gateway.deleteSession(run.sessionId);
+
+    expect(await gateway.getSession(run.sessionId)).toBeNull();
+    await expect(fs.stat(path.join(root, "data/transcripts", `${run.sessionId}.jsonl`))).rejects.toThrow();
+    await expect(fs.stat(path.join(eventsDir, "bound.json"))).rejects.toThrow();
+  });
 });

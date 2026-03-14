@@ -173,4 +173,18 @@ export class FileSessionStore implements SessionStore {
       this.mutex.release();
     }
   }
+
+  async delete(sessionId: string): Promise<void> {
+    await this.mutex.acquire();
+    try {
+      const records = await readIndexFile(this.indexFilePath);
+      const filtered = records.filter((record) => record.sessionId !== sessionId);
+      if (filtered.length === records.length) {
+        throw new Error(`Session not found: ${sessionId}`);
+      }
+      await writeIndexFile(this.indexFilePath, filtered);
+    } finally {
+      this.mutex.release();
+    }
+  }
 }

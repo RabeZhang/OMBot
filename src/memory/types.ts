@@ -40,6 +40,7 @@ export interface SessionStore {
   get(sessionId: string): Promise<SessionRecord | null>;
   list(): Promise<SessionSummary[]>;
   update(session: SessionRecord): Promise<void>;
+  delete(sessionId: string): Promise<void>;
 }
 
 export type TranscriptEntryKind =
@@ -64,4 +65,5 @@ export interface TranscriptEntry {
 export interface TranscriptStore {
   append(entry: TranscriptEntry): Promise<void>;
   listBySession(sessionId: string, limit?: number): Promise<TranscriptEntry[]>;
+  deleteBySession(sessionId: string): Promise<void>;
 }

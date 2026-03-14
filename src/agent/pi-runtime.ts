@@ -2,6 +2,7 @@ import { Agent, type AgentEvent, type AgentTool } from "@mariozechner/pi-agent-c
 import type { Model } from "@mariozechner/pi-ai";
 
 import type { AgentRunInput, AgentRuntimeAdapter, AgentRuntimeEvent } from "./types";
+import { runWithToolRuntimeContext } from "../tools/runtime-context";
 
 /**
  * 基于 pi-agent-core 的 Agent Runtime Adapter。
@@ -35,6 +36,8 @@ export class PiAgentRuntimeAdapter implements AgentRuntimeAdapter {
 
         yield { type: "agent.start", sessionId, runId };
 
+        const runtimeSystemPrompt = buildRuntimeSystemPrompt(input.promptContext.systemPrompt ?? "");
+
         // 构造 prompt 文本
         const promptText = this.buildPromptText(input);
 
@@ -53,7 +56,7 @@ export class PiAgentRuntimeAdapter implements AgentRuntimeAdapter {
         // 创建 pi Agent 实例
         const agent = new Agent({
             initialState: {
-                systemPrompt: input.promptContext.systemPrompt ?? "",
+                systemPrompt: runtimeSystemPrompt,
                 model: this.model,
                 tools: this.tools,
             },
@@ -106,8 +109,13 @@ export class PiAgentRuntimeAdapter implements AgentRuntimeAdapter {
         });
 
         // 在后台执行 prompt，不阻塞 generator
-        const agentPromise = agent.prompt(promptText)
-            .then(() => agent.waitForIdle())
+        const agentPromise = runWithToolRuntimeContext(
+            { sessionId },
+            async () => {
+                await agent.prompt(promptText);
+                await agent.waitForIdle();
+            },
+        )
             .then(() => {
                 done = true;
                 enqueue(null); // sentinel to signal completion
@@ -182,6 +190,7 @@ export class PiAgentRuntimeAdapter implements AgentRuntimeAdapter {
 
         const event = input.input.event;
         return [
+            ...(input.promptContext.sessionHistory ? [input.promptContext.sessionHistory, ""] : []),
             "请处理以下定时/调度事件：",
             `事件 ID: ${event.eventId}`,
             `来源文件: ${event.sourceFile}`,
@@ -194,4 +203,23 @@ export class PiAgentRuntimeAdapter implements AgentRuntimeAdapter {
             `附加元数据: ${JSON.stringify(event.metadata ?? {})}`,
         ].join("\n");
     }
+}
+
+function buildRuntimeSystemPrompt(basePrompt: string): string {
+    const now = new Date();
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    const localTime = new Intl.DateTimeFormat("zh-CN", {
+        dateStyle: "full",
+        timeStyle: "long",
+        timeZone: timezone,
+    }).format(now);
+
+    return [
+        basePrompt.trim(),
+        "[当前运行时信息]",
+        `当前本地时间: ${localTime}`,
+        `当前 ISO 时间: ${now.toISOString()}`,
+        `当前时区: ${timezone}`,
+        "如果用户使用“1分钟后”“明天早上”“每天8点40”等相对或自然语言时间表达，你必须基于以上当前时间和时区推算，不要自行假设别的日期。",
+    ].filter((section) => section.length > 0).join("\n\n");
 }

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
     toPiAgentTool,
     createPiLocalReadOnlyTools,
+    createAllPiTools,
     processStatusTypeboxSchema,
     emptyTypeboxSchema,
     diskUsageTypeboxSchema,
@@ -68,6 +69,22 @@ describe("createPiLocalReadOnlyTools", () => {
             expect(typeof tool.label).toBe("string");
             expect(tool.parameters).toBeDefined();
         }
+    });
+});
+
+describe("createAllPiTools", () => {
+    it("includes event management tools", () => {
+        const tools = createAllPiTools({
+            cwd: process.cwd(),
+            eventsDir: `${process.cwd()}/workspace/events`,
+            defaultTimezone: "Asia/Shanghai",
+        });
+
+        const names = tools.map((tool) => tool.name);
+        expect(names).toContain("create_event");
+        expect(names).toContain("list_events");
+        expect(names).toContain("read_event");
+        expect(names).toContain("delete_event");
     });
 });
 

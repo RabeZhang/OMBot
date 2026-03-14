@@ -2,6 +2,7 @@ import type { SessionRecord } from "../memory/types";
 
 export interface PromptContext {
   systemPrompt?: string;
+  sessionHistory?: string;
 }
 
 export type AgentRuntimeInput =

@@ -9,3 +9,7 @@
 - `get_system_logs`
 - `restart_service`
 - `stop_service`
+- `create_event`
+- `list_events`
+- `read_event`
+- `delete_event`

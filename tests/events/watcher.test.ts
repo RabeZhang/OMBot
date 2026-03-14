@@ -47,6 +47,7 @@ function createGatewaySpy(calls: ScheduledEventInput[]): Gateway {
     async getSession() {
       return null;
     },
+    async deleteSession() {},
     async updateSessionTitle() {},
   };
 }

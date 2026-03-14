@@ -117,14 +117,23 @@ Transcript / Audit / CLI
   - 列出事件文件
 - `/events show <file>`
   - 查看事件文件内容
-- `/event now <text>`
-  - 创建一个 immediate 事件文件
 - `/event rm <file>`
   - 删除事件文件
 
 说明：
 
-- 若 `events.enabled=false`，CLI 仍可创建/查看事件文件，但 watcher 不会自动处理它们。
+- 事件创建的主入口应是 Agent tool，而不是 CLI 命令。
+- CLI 只保留查看和删除这类管理能力。
+- 若 `events.enabled=false`，CLI 仍可查看和删除事件文件，但 watcher 不会自动处理它们。
+
+## Agent Tools
+
+Agent 当前应通过以下工具管理事件：
+
+- `create_event`
+- `list_events`
+- `read_event`
+- `delete_event`
 
 ## 示例事件文件
 

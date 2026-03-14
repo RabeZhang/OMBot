@@ -33,7 +33,7 @@ execution:
   #   workdir: "/workspace"
 
 events:
-  enabled: false
+  enabled: true
   dir: "./workspace/events"
   default_timezone: "Asia/Shanghai"
   max_queued_per_session: 5

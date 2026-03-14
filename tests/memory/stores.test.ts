@@ -70,6 +70,23 @@ describe("FileSessionStore", () => {
     expect(updated?.title).toBe("After update");
     expect(updated?.updatedAt && updated.updatedAt > before).toBe(true);
   });
+
+  it("deletes sessions", async () => {
+    const root = await createTempDir();
+    const store = new FileSessionStore({
+      indexFilePath: path.join(root, "data/sessions/index.json"),
+      hostId: "local-test",
+    });
+
+    const session = await store.create({ type: "interactive", title: "Delete me" });
+    await store.delete(session.sessionId);
+
+    const loaded = await store.get(session.sessionId);
+    const listed = await store.list();
+
+    expect(loaded).toBeNull();
+    expect(listed).toHaveLength(0);
+  });
 });
 
 describe("FileTranscriptStore", () => {
@@ -118,6 +135,26 @@ describe("FileTranscriptStore", () => {
     });
 
     const entries = await store.listBySession("unknown-session");
+
+    expect(entries).toEqual([]);
+  });
+
+  it("deletes transcript file by session", async () => {
+    const root = await createTempDir();
+    const store = new FileTranscriptStore({
+      transcriptsDir: path.join(root, "data/transcripts"),
+    });
+
+    await store.append({
+      id: "entry_1",
+      sessionId: "sess_1",
+      kind: "message",
+      createdAt: new Date().toISOString(),
+      payload: { role: "user", content: "hello" },
+    });
+
+    await store.deleteBySession("sess_1");
+    const entries = await store.listBySession("sess_1");
 
     expect(entries).toEqual([]);
   });

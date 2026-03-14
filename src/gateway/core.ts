@@ -2,8 +2,10 @@ import type { AgentRuntimeAdapter, AgentRuntimeInput } from "../agent/types";
 import { createId } from "../shared/ids";
 import { nowIsoString } from "../shared/time";
 import type { SessionRecord, SessionStore, TranscriptStore } from "../memory/types";
+import type { TranscriptEntry } from "../memory/types";
 import type { AuditStore } from "../audit/types";
 import type { LlmClient } from "../llm/types";
+import { deleteEventFilesBySessionId } from "../events/files";
 import type {
   ApprovalCenter,
   ApprovalResolutionInput,
@@ -27,6 +29,7 @@ interface GatewayCoreOptions {
     systemPrompt?: string;
   };
   llmClient?: LlmClient;
+  eventsDir?: string;
 }
 
 class AsyncEventQueue {
@@ -92,6 +95,7 @@ export class GatewayCore implements Gateway {
     systemPrompt?: string;
   };
   private readonly llmClient?: LlmClient;
+  private readonly eventsDir?: string;
 
   constructor(options: GatewayCoreOptions) {
     this.sessionStore = options.sessionStore;
@@ -102,6 +106,7 @@ export class GatewayCore implements Gateway {
     this.auditStore = options.auditStore;
     this.promptContext = options.promptContext ?? {};
     this.llmClient = options.llmClient;
+    this.eventsDir = options.eventsDir;
   }
 
   async sendUserMessage(input: UserMessageInput): Promise<GatewayRunHandle> {
@@ -362,6 +367,15 @@ export class GatewayCore implements Gateway {
     };
   }
 
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.getRequiredSession(sessionId);
+    if (this.eventsDir) {
+      await deleteEventFilesBySessionId(this.eventsDir, sessionId);
+    }
+    await this.transcriptStore.deleteBySession(sessionId);
+    await this.sessionStore.delete(sessionId);
+  }
+
   private async getRequiredSession(sessionId: string) {
     const session = await this.sessionStore.get(sessionId);
     if (!session) {
@@ -422,13 +436,19 @@ export class GatewayCore implements Gateway {
   private async runAgent(sessionId: string, runId: string, input: AgentRuntimeInput, userContent?: string): Promise<void> {
     const session = await this.getRequiredSession(sessionId);
     let assistantSummary: string | undefined;
+    const sessionHistory = input.kind === "scheduled_event"
+      ? await this.buildSessionHistory(sessionId)
+      : undefined;
 
     // 这里先把 Gateway 和 Agent 事件链打通，PromptContext 细化会在真实运行时接入时继续完善。
     for await (const event of this.agentRuntime.run({
       session,
       runId,
       input,
-      promptContext: this.promptContext,
+      promptContext: {
+        ...this.promptContext,
+        sessionHistory,
+      },
       toolProfile: "readonly",
     })) {
       if (event.type === "agent.message_update") {
@@ -518,6 +538,48 @@ export class GatewayCore implements Gateway {
       }
 
       await this.eventBus.publish(event);
+    }
+  }
+
+  private async buildSessionHistory(sessionId: string): Promise<string | undefined> {
+    const entries = await this.transcriptStore.listBySession(sessionId, 30);
+    if (entries.length === 0) {
+      return undefined;
+    }
+
+    const lines = entries
+      .map((entry) => this.formatTranscriptEntry(entry))
+      .filter((line): line is string => Boolean(line));
+
+    if (lines.length === 0) {
+      return undefined;
+    }
+
+    return ["[当前会话历史上下文]", ...lines].join("\n");
+  }
+
+  private formatTranscriptEntry(entry: TranscriptEntry): string | null {
+    switch (entry.kind) {
+      case "message": {
+        const role = entry.payload.role;
+        const content = entry.payload.content;
+        if (typeof role === "string" && typeof content === "string") {
+          return `${role}: ${content}`;
+        }
+        return null;
+      }
+      case "tool_call":
+        return `tool_call: ${String(entry.payload.toolName)} ${JSON.stringify(entry.payload.input ?? {})}`;
+      case "tool_result":
+        return `tool_result: ${String(entry.payload.toolName)} ${JSON.stringify(entry.payload.output ?? {})}`;
+      case "scheduled_event":
+        return `scheduled_event: ${String(entry.payload.eventType)} ${String(entry.payload.text ?? "")}`;
+      case "monitor_event":
+        return `monitor_event: ${String(entry.payload.summary ?? "")}`;
+      case "summary":
+        return `summary: ${String(entry.payload.summary ?? "")}`;
+      default:
+        return null;
     }
   }
 }

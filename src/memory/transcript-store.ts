@@ -53,4 +53,16 @@ export class FileTranscriptStore implements TranscriptStore {
       throw error;
     }
   }
+
+  async deleteBySession(sessionId: string): Promise<void> {
+    const filePath = getTranscriptFilePath(this.transcriptsDir, sessionId);
+    try {
+      await fs.unlink(filePath);
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return;
+      }
+      throw error;
+    }
+  }
 }

@@ -31,7 +31,11 @@ export async function bootstrap(projectRoot: string) {
   await ensureRuntimeDirs(config.ombot.paths);
 
   const piModel = createPiModel(config.llm);
-  const piTools = createAllPiTools(projectRoot);
+  const piTools = createAllPiTools({
+    cwd: projectRoot,
+    eventsDir: config.ombot.events.dir,
+    defaultTimezone: config.ombot.events.defaultTimezone,
+  });
   const agentRuntime = new PiAgentRuntimeAdapter({
     model: piModel,
     tools: piTools,
@@ -61,6 +65,7 @@ export async function bootstrap(projectRoot: string) {
     sessionStore,
     transcriptStore,
     auditStore,
+    eventsDir: config.ombot.events.dir,
   });
 
   const monitorEngine = new MonitorEngine({
@@ -82,6 +87,7 @@ export async function bootstrap(projectRoot: string) {
     piModel,
     agentRuntime,
     promptContext,
+    eventBus,
     gateway,
     monitorEngine,
     eventsWatcher,

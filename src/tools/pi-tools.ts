@@ -69,6 +69,12 @@ import { createEditTool } from "./local/edit";
 import { createWriteTool } from "./local/write";
 import { createGrepTool } from "./local/grep";
 import { createFindTool } from "./local/find";
+import {
+    createCreateEventTool,
+    createDeleteEventTool,
+    createListEventsTool,
+    createReadEventTool,
+} from "./local/events";
 
 interface ToolWithSchema {
     tool: OmbotToolDefinition;
@@ -99,15 +105,34 @@ export function createPiLocalReadOnlyTools(): AgentTool[] {
  * 创建所有工具（只读 + bash/read/edit/write/grep/find）。
  * cwd 参数用于 bash/read/edit/write/grep/find 的工作目录。
  */
-export function createAllPiTools(cwd: string): AgentTool[] {
+export function createAllPiTools(options: {
+    cwd: string;
+    eventsDir: string;
+    defaultTimezone: string;
+}): AgentTool[] {
     return [
         ...createPiLocalReadOnlyTools(),
-        createBashTool(cwd),
-        createReadTool(cwd),
-        createEditTool(cwd),
-        createWriteTool(cwd),
-        createGrepTool(cwd),
-        createFindTool(cwd),
+        createBashTool(options.cwd),
+        createReadTool(options.cwd),
+        createEditTool(options.cwd),
+        createWriteTool(options.cwd),
+        createGrepTool(options.cwd),
+        createFindTool(options.cwd),
+        createCreateEventTool({
+            eventsDir: options.eventsDir,
+            defaultTimezone: options.defaultTimezone,
+        }),
+        createListEventsTool({
+            eventsDir: options.eventsDir,
+            defaultTimezone: options.defaultTimezone,
+        }),
+        createReadEventTool({
+            eventsDir: options.eventsDir,
+            defaultTimezone: options.defaultTimezone,
+        }),
+        createDeleteEventTool({
+            eventsDir: options.eventsDir,
+            defaultTimezone: options.defaultTimezone,
+        }),
     ];
 }
-

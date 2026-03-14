@@ -14,6 +14,8 @@ profiles:
       - grep              # 文件搜索
       - find              # 文件查找
       - read              # 文件读取（已嵌入 pi-mom）
+      - list_events       # 查看事件列表
+      - read_event        # 查看事件内容
 
   # 运维模式：允许服务管理和文件操作
   ops:
@@ -25,13 +27,18 @@ profiles:
       - grep
       - find
       - read
+      - list_events
+      - read_event
       - write             # 文件写入（TODO: 嵌入 pi-mom write）
       - edit              # 文件编辑（已嵌入 pi-mom）
+      - create_event      # 创建定时/提醒事件
+      - delete_event      # 删除事件
     require_confirmation:
       - restart_service
       - stop_service
       - write
       - edit
+      - delete_event
 
   # 隔离模式：高风险操作强制在 Docker 中执行
   isolated:
