@@ -107,6 +107,40 @@ export class GatewayCore implements Gateway {
     this.promptContext = options.promptContext ?? {};
     this.llmClient = options.llmClient;
     this.eventsDir = options.eventsDir;
+
+    this.eventBus.subscribe(async (event) => {
+      if (event.type !== "approval.required") {
+        return;
+      }
+
+      await this.transcriptStore.append({
+        id: createId("entry"),
+        sessionId: event.sessionId,
+        kind: "approval",
+        createdAt: nowIsoString(),
+        payload: {
+          approvalId: event.approvalId,
+          status: "pending",
+          toolName: event.toolName,
+          reason: event.reason,
+        },
+      });
+
+      if (this.auditStore) {
+        await this.auditStore.append({
+          auditId: createId("audit"),
+          sessionId: event.sessionId,
+          toolName: event.toolName,
+          riskLevel: "privileged",
+          input: JSON.stringify({ reason: event.reason }),
+          decision: "allowed",
+          approvalId: event.approvalId,
+          resultStatus: "pending",
+          resultSummary: `approval required: ${event.reason}`.slice(0, 500),
+          createdAt: nowIsoString(),
+        });
+      }
+    });
   }
 
   async sendUserMessage(input: UserMessageInput): Promise<GatewayRunHandle> {
@@ -348,6 +382,40 @@ export class GatewayCore implements Gateway {
 
   async resolveApproval(input: ApprovalResolutionInput): Promise<void> {
     await this.approvalCenter.resolve(input);
+    const state = await this.approvalCenter.get(input.approvalId);
+    if (!state) {
+      return;
+    }
+
+    await this.transcriptStore.append({
+      id: createId("entry"),
+      sessionId: state.sessionId,
+      kind: "approval",
+      createdAt: state.resolvedAt ?? nowIsoString(),
+      payload: {
+        approvalId: state.approvalId,
+        status: state.status,
+        toolName: state.toolName,
+        reason: state.reason,
+        resolvedBy: state.resolvedBy,
+        resolvedAt: state.resolvedAt,
+      },
+    });
+
+    if (this.auditStore) {
+      await this.auditStore.append({
+        auditId: createId("audit"),
+        sessionId: state.sessionId,
+        toolName: state.toolName,
+        riskLevel: "privileged",
+        input: JSON.stringify({ reason: state.reason }),
+        decision: state.status === "approved_once" ? "approved" : "denied",
+        approvalId: state.approvalId,
+        resultStatus: "success",
+        resultSummary: `${state.status} by ${state.resolvedBy ?? "unknown"}`.slice(0, 500),
+        createdAt: state.resolvedAt ?? nowIsoString(),
+      });
+    }
   }
 
   async listSessions() {
@@ -436,9 +504,11 @@ export class GatewayCore implements Gateway {
   private async runAgent(sessionId: string, runId: string, input: AgentRuntimeInput, userContent?: string): Promise<void> {
     const session = await this.getRequiredSession(sessionId);
     let assistantSummary: string | undefined;
-    const sessionHistory = input.kind === "scheduled_event"
-      ? await this.buildSessionHistory(sessionId)
-      : undefined;
+    const sessionHistory = input.kind === "user_message"
+      ? await this.buildSessionHistory(sessionId, { excludeTrailingUserContent: input.content })
+      : input.kind === "scheduled_event"
+        ? await this.buildSessionHistory(sessionId)
+        : undefined;
 
     // 这里先把 Gateway 和 Agent 事件链打通，PromptContext 细化会在真实运行时接入时继续完善。
     for await (const event of this.agentRuntime.run({
@@ -541,13 +611,32 @@ export class GatewayCore implements Gateway {
     }
   }
 
-  private async buildSessionHistory(sessionId: string): Promise<string | undefined> {
+  private async buildSessionHistory(
+    sessionId: string,
+    options?: { excludeTrailingUserContent?: string },
+  ): Promise<string | undefined> {
     const entries = await this.transcriptStore.listBySession(sessionId, 30);
     if (entries.length === 0) {
       return undefined;
     }
 
-    const lines = entries
+    const normalizedEntries = [...entries];
+    if (options?.excludeTrailingUserContent) {
+      const lastEntry = normalizedEntries[normalizedEntries.length - 1];
+      if (
+        lastEntry?.kind === "message"
+        && lastEntry.payload.role === "user"
+        && lastEntry.payload.content === options.excludeTrailingUserContent
+      ) {
+        normalizedEntries.pop();
+      }
+    }
+
+    if (normalizedEntries.length === 0) {
+      return undefined;
+    }
+
+    const lines = normalizedEntries
       .map((entry) => this.formatTranscriptEntry(entry))
       .filter((line): line is string => Boolean(line));
 
@@ -576,6 +665,13 @@ export class GatewayCore implements Gateway {
         return `scheduled_event: ${String(entry.payload.eventType)} ${String(entry.payload.text ?? "")}`;
       case "monitor_event":
         return `monitor_event: ${String(entry.payload.summary ?? "")}`;
+      case "approval":
+        return [
+          `approval: ${String(entry.payload.status ?? "unknown")}`,
+          `tool=${String(entry.payload.toolName ?? "unknown")}`,
+          `reason=${String(entry.payload.reason ?? "")}`,
+          ...(entry.payload.resolvedBy ? [`resolvedBy=${String(entry.payload.resolvedBy)}`] : []),
+        ].join(" ");
       case "summary":
         return `summary: ${String(entry.payload.summary ?? "")}`;
       default:

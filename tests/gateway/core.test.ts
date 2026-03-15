@@ -94,6 +94,36 @@ describe("InMemoryApprovalCenter", () => {
     expect(state?.status).toBe("approved_once");
     expect(state?.resolvedBy).toBe("tester");
   });
+
+  it("waits for approval resolution and returns the resolved status", async () => {
+    const eventBus = new InMemoryEventBus();
+    const approvalCenter = new InMemoryApprovalCenter({ eventBus });
+
+    await approvalCenter.request({
+      approvalId: "approval_wait_1",
+      sessionId: "sess_1",
+      toolCallId: "tool_call_1",
+      toolName: "bash",
+      reason: "执行危险命令",
+      expiresAt: new Date(Date.now() + 2_000).toISOString(),
+    });
+
+    const waitPromise = approvalCenter.waitForResolution(
+      "approval_wait_1",
+      new Date(Date.now() + 2_000).toISOString(),
+    );
+
+    await approvalCenter.resolve({
+      approvalId: "approval_wait_1",
+      action: "deny",
+      resolvedBy: "tester",
+    });
+
+    await expect(waitPromise).resolves.toMatchObject({
+      approvalId: "approval_wait_1",
+      status: "denied",
+    });
+  });
 });
 
 describe("GatewayCore", () => {
@@ -261,5 +291,61 @@ describe("GatewayCore", () => {
     expect(await gateway.getSession(run.sessionId)).toBeNull();
     await expect(fs.stat(path.join(root, "data/transcripts", `${run.sessionId}.jsonl`))).rejects.toThrow();
     await expect(fs.stat(path.join(eventsDir, "bound.json"))).rejects.toThrow();
+  });
+
+  it("appends approval lifecycle records to transcript", async () => {
+    const root = await createTempDir();
+    const eventBus = new InMemoryEventBus();
+    const approvalCenter = new InMemoryApprovalCenter({ eventBus });
+    const gateway = new GatewayCore({
+      eventBus,
+      approvalCenter,
+      agentRuntime: new FakeAgentRuntimeAdapter(),
+      sessionStore: new FileSessionStore({
+        indexFilePath: path.join(root, "data/sessions/index.json"),
+        hostId: "local-test",
+      }),
+      transcriptStore: new FileTranscriptStore({
+        transcriptsDir: path.join(root, "data/transcripts"),
+      }),
+    });
+
+    const run = await gateway.sendUserMessage({
+      content: "先创建一个会话",
+      title: "Approval transcript session",
+    });
+    await collectEvents(run.stream);
+
+    await approvalCenter.request({
+      approvalId: "approval_tx_1",
+      sessionId: run.sessionId,
+      toolCallId: "tool_call_1",
+      toolName: "write",
+      reason: "写入配置文件",
+      expiresAt: new Date(Date.now() + 2_000).toISOString(),
+    });
+
+    await gateway.resolveApproval({
+      approvalId: "approval_tx_1",
+      action: "deny",
+      resolvedBy: "tester",
+    });
+
+    const snapshot = await gateway.getSession(run.sessionId);
+    const approvalEntries = snapshot?.transcript.filter((entry) => entry.kind === "approval") ?? [];
+
+    expect(approvalEntries).toHaveLength(2);
+    expect(approvalEntries[0]?.payload).toMatchObject({
+      approvalId: "approval_tx_1",
+      status: "pending",
+      toolName: "write",
+      reason: "写入配置文件",
+    });
+    expect(approvalEntries[1]?.payload).toMatchObject({
+      approvalId: "approval_tx_1",
+      status: "denied",
+      toolName: "write",
+      resolvedBy: "tester",
+    });
   });
 });

@@ -75,6 +75,7 @@ import {
     createListEventsTool,
     createReadEventTool,
 } from "./local/events";
+import { wrapProtectedAgentTools, type SecureExecutionOptions } from "./secure-execution";
 
 interface ToolWithSchema {
     tool: OmbotToolDefinition;
@@ -109,8 +110,9 @@ export function createAllPiTools(options: {
     cwd: string;
     eventsDir: string;
     defaultTimezone: string;
+    secureExecution?: SecureExecutionOptions;
 }): AgentTool[] {
-    return [
+    const tools = [
         ...createPiLocalReadOnlyTools(),
         createBashTool(options.cwd),
         createReadTool(options.cwd),
@@ -135,4 +137,8 @@ export function createAllPiTools(options: {
             defaultTimezone: options.defaultTimezone,
         }),
     ];
+
+    return options.secureExecution
+        ? wrapProtectedAgentTools(tools, options.secureExecution)
+        : tools;
 }

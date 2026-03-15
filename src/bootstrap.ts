@@ -30,11 +30,17 @@ export async function bootstrap(projectRoot: string) {
   const config = await configLoader.load(`${projectRoot}/config`);
   await ensureRuntimeDirs(config.ombot.paths);
 
+  const eventBus = new InMemoryEventBus();
+  const approvalCenter = new InMemoryApprovalCenter({ eventBus });
   const piModel = createPiModel(config.llm);
   const piTools = createAllPiTools({
     cwd: projectRoot,
     eventsDir: config.ombot.events.dir,
     defaultTimezone: config.ombot.events.defaultTimezone,
+    secureExecution: {
+      approvalCenter,
+      approvalTimeoutSec: config.ombot.gateway.approvalTimeoutSec,
+    },
   });
   const agentRuntime = new PiAgentRuntimeAdapter({
     model: piModel,
@@ -43,8 +49,6 @@ export async function bootstrap(projectRoot: string) {
     temperature: config.llm.temperature,
   });
   const promptContext = await buildPromptContext(config.ombot, config.monitors);
-  const eventBus = new InMemoryEventBus();
-  const approvalCenter = new InMemoryApprovalCenter({ eventBus });
   const sessionStore = new FileSessionStore({
     indexFilePath: path.join(config.ombot.paths.dataDir, "sessions", "index.json"),
     hostId: config.ombot.app.hostId,

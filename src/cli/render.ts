@@ -67,6 +67,8 @@ export function renderHelp(): string {
     "/use <id|number>     切换到指定会话",
     "                       /use 1        - 切换到第 1 个会话",
     "                       /use sess_xxx - 用 sessionId 切换",
+    "/approve <approvalId> 批准当前高风险操作",
+    "/deny <approvalId>    拒绝当前高风险操作",
     "/session rm <id|number> 删除指定会话（并删除其 event）",
     "/clear               清除当前会话绑定",
     "/events              列出当前事件文件",

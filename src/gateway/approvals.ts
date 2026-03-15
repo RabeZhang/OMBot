@@ -7,6 +7,7 @@ interface InMemoryApprovalCenterOptions {
 
 export class InMemoryApprovalCenter implements ApprovalCenter {
   private readonly approvals = new Map<string, ApprovalState>();
+  private readonly waiters = new Map<string, Array<(state: ApprovalState) => void>>();
   private readonly eventBus: EventBus;
 
   constructor(options: InMemoryApprovalCenterOptions) {
@@ -44,6 +45,11 @@ export class InMemoryApprovalCenter implements ApprovalCenter {
     };
 
     this.approvals.set(input.approvalId, next);
+    const waiters = this.waiters.get(input.approvalId) ?? [];
+    this.waiters.delete(input.approvalId);
+    for (const waiter of waiters) {
+      waiter(next);
+    }
     await this.eventBus.publish({
       type: "approval.resolved",
       sessionId: current.sessionId,
@@ -54,5 +60,74 @@ export class InMemoryApprovalCenter implements ApprovalCenter {
 
   async get(approvalId: string): Promise<ApprovalState | null> {
     return this.approvals.get(approvalId) ?? null;
+  }
+
+  async waitForResolution(
+    approvalId: string,
+    expiresAt: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    approvalId: string;
+    status: "approved_once" | "denied" | "timed_out";
+    resolvedAt: string;
+  }> {
+    const current = this.approvals.get(approvalId);
+    if (!current) {
+      throw new Error(`Approval not found: ${approvalId}`);
+    }
+
+    if (current.status === "approved_once" || current.status === "denied") {
+      return {
+        approvalId,
+        status: current.status,
+        resolvedAt: current.resolvedAt ?? nowIsoString(),
+      };
+    }
+
+    return new Promise((resolve, reject) => {
+      const timeoutMs = Math.max(0, new Date(expiresAt).getTime() - Date.now());
+      const queue = this.waiters.get(approvalId) ?? [];
+      const onAbort = () => {
+        cleanup();
+        reject(new Error(`Approval wait aborted: ${approvalId}`));
+      };
+      const timeout = setTimeout(() => {
+        cleanup();
+        resolve({
+          approvalId,
+          status: "timed_out",
+          resolvedAt: nowIsoString(),
+        });
+      }, timeoutMs);
+
+      const waiter = (state: ApprovalState) => {
+        cleanup();
+        resolve({
+          approvalId,
+          status: state.status === "approved_once" ? "approved_once" : "denied",
+          resolvedAt: state.resolvedAt ?? nowIsoString(),
+        });
+      };
+
+      queue.push(waiter);
+      this.waiters.set(approvalId, queue);
+
+      if (signal) {
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        if (signal) {
+          signal.removeEventListener("abort", onAbort);
+        }
+        const remaining = queue.filter((entry) => entry !== waiter);
+        if (remaining.length === 0) {
+          this.waiters.delete(approvalId);
+        } else {
+          this.waiters.set(approvalId, remaining);
+        }
+      };
+    });
   }
 }

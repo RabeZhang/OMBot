@@ -2,6 +2,7 @@ import { Agent, type AgentEvent, type AgentTool } from "@mariozechner/pi-agent-c
 import type { Model } from "@mariozechner/pi-ai";
 
 import type { AgentRunInput, AgentRuntimeAdapter, AgentRuntimeEvent } from "./types";
+import { ToolApprovalDeniedError, ToolApprovalTimeoutError } from "../tools/approval-errors";
 import { runWithToolRuntimeContext } from "../tools/runtime-context";
 
 /**
@@ -147,6 +148,11 @@ export class PiAgentRuntimeAdapter implements AgentRuntimeAdapter {
 
         await agentPromise; // ensure cleanup
 
+        if (error instanceof ToolApprovalDeniedError || error instanceof ToolApprovalTimeoutError) {
+            yield { type: "agent.end", sessionId, runId };
+            return;
+        }
+
         if (error) {
             throw error;
         }
@@ -173,7 +179,10 @@ export class PiAgentRuntimeAdapter implements AgentRuntimeAdapter {
 
     private buildPromptText(input: AgentRunInput): string {
         if (input.input.kind === "user_message") {
-            return input.input.content;
+            return [
+                ...(input.promptContext.sessionHistory ? [input.promptContext.sessionHistory, ""] : []),
+                input.input.content,
+            ].join("\n");
         }
 
         if (input.input.kind === "monitor_event") {

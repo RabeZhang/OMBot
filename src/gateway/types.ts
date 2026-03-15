@@ -88,6 +88,15 @@ export interface ApprovalCenter {
   request(input: ApprovalRequest): Promise<void>;
   resolve(input: ApprovalResolutionInput): Promise<void>;
   get(approvalId: string): Promise<ApprovalState | null>;
+  waitForResolution(
+    approvalId: string,
+    expiresAt: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    approvalId: string;
+    status: "approved_once" | "denied" | "timed_out";
+    resolvedAt: string;
+  }>;
 }
 
 export interface Gateway {

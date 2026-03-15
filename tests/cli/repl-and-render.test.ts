@@ -10,6 +10,16 @@ describe("parseCliCommand", () => {
     expect(parseCliCommand("/sessions 20")).toEqual({ type: "sessions", limit: 20 });
     expect(parseCliCommand("/sessions all")).toEqual({ type: "sessions", limit: "all" });
     expect(parseCliCommand("/clear")).toEqual({ type: "clear" });
+    expect(parseCliCommand("/approve approval_123")).toEqual({
+      type: "approval",
+      action: "approve_once",
+      content: "approval_123",
+    });
+    expect(parseCliCommand("/deny approval_123")).toEqual({
+      type: "approval",
+      action: "deny",
+      content: "approval_123",
+    });
     expect(parseCliCommand("/session rm 1")).toEqual({
       type: "session",
       action: "rm",
@@ -103,6 +113,8 @@ describe("render helpers", () => {
     expect(renderSessionSummaries([])).toBe("当前还没有会话。");
     expect(renderHelp()).toContain("/sessions");
     expect(renderHelp()).toContain("/use");
+    expect(renderHelp()).toContain("/approve");
+    expect(renderHelp()).toContain("/deny");
     expect(renderHelp()).toContain("/session rm");
     expect(renderHelp()).toContain("/events");
     expect(renderHelp()).toContain("/event rm");

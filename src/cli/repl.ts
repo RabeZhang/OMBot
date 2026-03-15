@@ -65,6 +65,8 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
       { name: "events", description: "列出当前事件文件" },
       { name: "events show <file>", description: "查看指定事件文件内容" },
       { name: "event rm <file>", description: "删除指定事件文件" },
+      { name: "approve <approvalId>", description: "批准指定高风险操作" },
+      { name: "deny <approvalId>", description: "拒绝指定高风险操作" },
       { name: "monitor", description: "查看最近的监控告警" },
       { name: "expand", description: "展开折叠的工具调用 (可选: /expand <序号>)" },
       { name: "exit", description: "退出 CLI" },
@@ -100,6 +102,19 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
     return chalk.gray(`  ℹ️  [${ts}] ${message}`);
   }
 
+  function formatApprovalRequired(event: Extract<GatewayEvent, { type: "approval.required" }>): string {
+    return chalk.yellow(
+      `  ⛔ ${event.toolName} 需要确认: ${event.reason}  (输入 /approve ${event.approvalId} 或 /deny ${event.approvalId})`,
+    );
+  }
+
+  function formatApprovalResolved(event: Extract<GatewayEvent, { type: "approval.resolved" }>): string {
+    if (event.action === "approve_once") {
+      return chalk.green(`  ✅ 已批准操作: ${event.approvalId}`);
+    }
+    return chalk.red(`  ✋ 已拒绝操作: ${event.approvalId}`);
+  }
+
   // ── Monitor 缓冲 ──
   const monitorHistory: Array<{ message: string; type: "alert" | "recovered" | "info"; ts: Date }> = [];
   const MAX_MONITOR_HISTORY = 20;
@@ -125,6 +140,24 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
         addTextMsg(chalk.cyan(`  ⏰ 定时事件触发: ${event.sourceFile}`));
       } else {
         addTextMsg(chalk.gray(`  ⏰ 会话 ${event.sessionId} 有定时事件触发，切换到该会话查看详情。`));
+      }
+      return;
+    }
+
+    if (event.type === "approval.required") {
+      if (activeSessionId === event.sessionId) {
+        addTextMsg(formatApprovalRequired(event));
+        editor.disableSubmit = false;
+      } else {
+        addTextMsg(chalk.gray(`  ⛔ 会话 ${event.sessionId} 有待确认操作，切换到该会话后可执行 /approve 或 /deny。`));
+      }
+      return;
+    }
+
+    if (event.type === "approval.resolved") {
+      if (activeSessionId === event.sessionId) {
+        addTextMsg(formatApprovalResolved(event));
+        editor.disableSubmit = event.action === "approve_once";
       }
       return;
     }
@@ -255,6 +288,16 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
             break;
           }
 
+          case "approval.required":
+            addLiveLine(formatApprovalRequired(event));
+            editor.disableSubmit = false;
+            break;
+
+          case "approval.resolved":
+            addLiveLine(formatApprovalResolved(event));
+            editor.disableSubmit = event.action === "approve_once";
+            break;
+
           case "agent.message_update":
             assistantContent = event.content;
             break;
@@ -342,6 +385,25 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
       if (command.type === "clear") {
         activeSessionId = undefined;
         addTextMsg(systemMessage("已清除当前会话绑定。"));
+        return;
+      }
+
+      if (command.type === "approval") {
+        if (!command.content) {
+          addTextMsg(systemMessage("请提供 approvalId，例如 /approve approval_xxx"));
+          return;
+        }
+
+        if (!activeSessionId) {
+          addTextMsg(systemMessage("当前未绑定会话，无法处理审批。请先切换到对应会话。"));
+          return;
+        }
+
+        await options.gateway.resolveApproval({
+          approvalId: command.content,
+          action: command.action === "deny" ? "deny" : "approve_once",
+          resolvedBy: "cli",
+        });
         return;
       }
 
@@ -518,6 +580,32 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
                 const eventType = String(entry.payload.eventType ?? "unknown");
                 const text = String(entry.payload.text ?? "");
                 messagesContainer.addChild(new Text(chalk.cyan(`  ⏰ [${eventType}] ${text}`), 0, 0));
+                break;
+              }
+
+              case "approval": {
+                const status = String(entry.payload.status ?? "unknown");
+                const toolName = String(entry.payload.toolName ?? "unknown");
+                const reason = String(entry.payload.reason ?? "");
+                const resolvedBy = entry.payload.resolvedBy ? ` by ${String(entry.payload.resolvedBy)}` : "";
+
+                if (status === "pending") {
+                  messagesContainer.addChild(
+                    new Text(chalk.yellow(`  ⛔ [approval] ${toolName} 需要确认: ${reason}`), 0, 0),
+                  );
+                } else if (status === "approved_once") {
+                  messagesContainer.addChild(
+                    new Text(chalk.green(`  ✅ [approval] 已批准 ${toolName}${resolvedBy}`), 0, 0),
+                  );
+                } else if (status === "denied") {
+                  messagesContainer.addChild(
+                    new Text(chalk.red(`  ✋ [approval] 已拒绝 ${toolName}${resolvedBy}`), 0, 0),
+                  );
+                } else {
+                  messagesContainer.addChild(
+                    new Text(chalk.gray(`  [approval] ${toolName} ${status}`), 0, 0),
+                  );
+                }
                 break;
               }
             }
