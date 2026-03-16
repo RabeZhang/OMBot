@@ -61,7 +61,6 @@ describe("PiAgentRuntimeAdapter", () => {
                 systemPrompt: "你是 OMBot",
                 sessionHistory: "[当前会话历史上下文]\napproval: denied tool=write reason=写入配置文件 resolvedBy=cli",
             },
-            toolProfile: "readonly",
         });
 
         expect(promptText).toContain("[当前会话历史上下文]");

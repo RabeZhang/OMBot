@@ -28,7 +28,7 @@ function createHealthyHandler(): http.RequestListener {
   return (req, res) => {
     const start = Date.now();
     const url = new URL(req.url ?? "/", `http://localhost`);
-    
+
     if (url.pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(
@@ -80,7 +80,7 @@ function createFlakyHandler(): http.RequestListener {
     requestCount++;
 
     if (url.pathname === "/health") {
-      const shouldFail = Math.random() > 0.5;
+      const shouldFail = Math.random() > 0.8;
       const statusCode = shouldFail ? 500 : 200;
       const status = shouldFail ? "error" : "ok";
 

@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { MonitorsConfig, OmbotConfig, ToolPolicyConfig } from "./schema";
+import type { MonitorsConfig, OmbotConfig } from "./schema";
 
 function toCamelCase(value: string): string {
   return value.replace(/_([a-z])/g, (_match, char: string) => char.toUpperCase());
@@ -54,9 +54,5 @@ export function normalizeOmbotConfigPaths(config: OmbotConfig, projectRoot: stri
 }
 
 export function normalizeMonitorsConfig(config: MonitorsConfig): MonitorsConfig {
-  return config;
-}
-
-export function normalizeToolPolicyConfig(config: ToolPolicyConfig): ToolPolicyConfig {
   return config;
 }

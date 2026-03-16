@@ -10,6 +10,7 @@ import { GatewayCore } from "../../src/gateway/core";
 import { InMemoryEventBus } from "../../src/gateway/event-bus";
 import { FileSessionStore } from "../../src/memory/session-store";
 import { FileTranscriptStore } from "../../src/memory/transcript-store";
+import { InMemoryToolApprovalModeController } from "../../src/tools/approval-mode";
 
 const tempDirs: string[] = [];
 
@@ -75,6 +76,7 @@ describe("InMemoryApprovalCenter", () => {
 
     await approvalCenter.request({
       approvalId: "approval_1",
+      approvalRef: "a1f2",
       sessionId: "sess_1",
       toolCallId: "tool_call_1",
       toolName: "restart_service",
@@ -93,6 +95,7 @@ describe("InMemoryApprovalCenter", () => {
     expect(received).toEqual(["approval.required", "approval.resolved"]);
     expect(state?.status).toBe("approved_once");
     expect(state?.resolvedBy).toBe("tester");
+    expect(state?.approvalRef).toBe("a1f2");
   });
 
   it("waits for approval resolution and returns the resolved status", async () => {
@@ -101,6 +104,7 @@ describe("InMemoryApprovalCenter", () => {
 
     await approvalCenter.request({
       approvalId: "approval_wait_1",
+      approvalRef: "a2b3",
       sessionId: "sess_1",
       toolCallId: "tool_call_1",
       toolName: "bash",
@@ -124,6 +128,51 @@ describe("InMemoryApprovalCenter", () => {
       status: "denied",
     });
   });
+
+  it("persists only pending approvals and restores them on init", async () => {
+    const root = await createTempDir();
+    const persistenceFilePath = path.join(root, "data/approvals/pending.json");
+    const eventBus = new InMemoryEventBus();
+
+    const firstCenter = new InMemoryApprovalCenter({ eventBus, persistenceFilePath });
+    await firstCenter.init();
+
+    await firstCenter.request({
+      approvalId: "approval_keep_1",
+      approvalRef: "a111",
+      sessionId: "sess_1",
+      toolCallId: "tool_call_1",
+      toolName: "write",
+      reason: "写入配置文件",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    await firstCenter.request({
+      approvalId: "approval_done_1",
+      approvalRef: "a222",
+      sessionId: "sess_1",
+      toolCallId: "tool_call_2",
+      toolName: "edit",
+      reason: "编辑配置文件",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+
+    await firstCenter.resolve({
+      approvalId: "approval_done_1",
+      action: "deny",
+      resolvedBy: "tester",
+    });
+
+    const secondCenter = new InMemoryApprovalCenter({ eventBus: new InMemoryEventBus(), persistenceFilePath });
+    await secondCenter.init();
+
+    expect(await secondCenter.getByRef("a111")).toMatchObject({
+      approvalId: "approval_keep_1",
+      approvalRef: "a111",
+      status: "pending",
+    });
+    expect(await secondCenter.getByRef("a222")).toBeNull();
+  });
 });
 
 describe("GatewayCore", () => {
@@ -135,6 +184,7 @@ describe("GatewayCore", () => {
       eventBus,
       approvalCenter,
       agentRuntime: new FakeAgentRuntimeAdapter(),
+      toolApprovalMode: new InMemoryToolApprovalModeController("default"),
       sessionStore: new FileSessionStore({
         indexFilePath: path.join(root, "data/sessions/index.json"),
         hostId: "local-test",
@@ -178,6 +228,7 @@ describe("GatewayCore", () => {
       eventBus,
       approvalCenter,
       agentRuntime: new FakeAgentRuntimeAdapter(),
+      toolApprovalMode: new InMemoryToolApprovalModeController("default"),
       sessionStore: new FileSessionStore({
         indexFilePath: path.join(root, "data/sessions/index.json"),
         hostId: "local-test",
@@ -211,6 +262,7 @@ describe("GatewayCore", () => {
       eventBus,
       approvalCenter,
       agentRuntime: new FakeAgentRuntimeAdapter(),
+      toolApprovalMode: new InMemoryToolApprovalModeController("default"),
       sessionStore: new FileSessionStore({
         indexFilePath: path.join(root, "data/sessions/index.json"),
         hostId: "local-test",
@@ -259,6 +311,7 @@ describe("GatewayCore", () => {
       eventBus,
       approvalCenter,
       agentRuntime: new FakeAgentRuntimeAdapter(),
+      toolApprovalMode: new InMemoryToolApprovalModeController("default"),
       sessionStore: new FileSessionStore({
         indexFilePath: path.join(root, "data/sessions/index.json"),
         hostId: "local-test",
@@ -301,6 +354,7 @@ describe("GatewayCore", () => {
       eventBus,
       approvalCenter,
       agentRuntime: new FakeAgentRuntimeAdapter(),
+      toolApprovalMode: new InMemoryToolApprovalModeController("default"),
       sessionStore: new FileSessionStore({
         indexFilePath: path.join(root, "data/sessions/index.json"),
         hostId: "local-test",
@@ -318,6 +372,7 @@ describe("GatewayCore", () => {
 
     await approvalCenter.request({
       approvalId: "approval_tx_1",
+      approvalRef: "a9f0",
       sessionId: run.sessionId,
       toolCallId: "tool_call_1",
       toolName: "write",
@@ -337,15 +392,42 @@ describe("GatewayCore", () => {
     expect(approvalEntries).toHaveLength(2);
     expect(approvalEntries[0]?.payload).toMatchObject({
       approvalId: "approval_tx_1",
+      approvalRef: "a9f0",
       status: "pending",
       toolName: "write",
       reason: "写入配置文件",
     });
     expect(approvalEntries[1]?.payload).toMatchObject({
       approvalId: "approval_tx_1",
+      approvalRef: "a9f0",
       status: "denied",
       toolName: "write",
       resolvedBy: "tester",
     });
+  });
+
+  it("switches tool approval mode through gateway", async () => {
+    const root = await createTempDir();
+    const eventBus = new InMemoryEventBus();
+    const approvalCenter = new InMemoryApprovalCenter({ eventBus });
+    const gateway = new GatewayCore({
+      eventBus,
+      approvalCenter,
+      agentRuntime: new FakeAgentRuntimeAdapter(),
+      toolApprovalMode: new InMemoryToolApprovalModeController("default"),
+      sessionStore: new FileSessionStore({
+        indexFilePath: path.join(root, "data/sessions/index.json"),
+        hostId: "local-test",
+      }),
+      transcriptStore: new FileTranscriptStore({
+        transcriptsDir: path.join(root, "data/transcripts"),
+      }),
+    });
+
+    expect(await gateway.getToolApprovalMode()).toBe("default");
+    await gateway.setToolApprovalMode("auto");
+    expect(await gateway.getToolApprovalMode()).toBe("auto");
+    await gateway.setToolApprovalMode("default");
+    expect(await gateway.getToolApprovalMode()).toBe("default");
   });
 });

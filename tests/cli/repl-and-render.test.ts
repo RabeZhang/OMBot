@@ -10,15 +10,23 @@ describe("parseCliCommand", () => {
     expect(parseCliCommand("/sessions 20")).toEqual({ type: "sessions", limit: 20 });
     expect(parseCliCommand("/sessions all")).toEqual({ type: "sessions", limit: "all" });
     expect(parseCliCommand("/clear")).toEqual({ type: "clear" });
-    expect(parseCliCommand("/approve approval_123")).toEqual({
+    expect(parseCliCommand("/approval auto")).toEqual({
+      type: "approval_mode",
+      action: "auto",
+    });
+    expect(parseCliCommand("/approval default")).toEqual({
+      type: "approval_mode",
+      action: "default",
+    });
+    expect(parseCliCommand("/approve a1f")).toEqual({
       type: "approval",
       action: "approve_once",
-      content: "approval_123",
+      content: "a1f",
     });
-    expect(parseCliCommand("/deny approval_123")).toEqual({
+    expect(parseCliCommand("/deny a1f")).toEqual({
       type: "approval",
       action: "deny",
-      content: "approval_123",
+      content: "a1f",
     });
     expect(parseCliCommand("/session rm 1")).toEqual({
       type: "session",
@@ -89,6 +97,17 @@ describe("render helpers", () => {
 
     expect(
       renderGatewayEvent({
+        type: "approval.required",
+        sessionId: "sess_1",
+        approvalId: "approval_1",
+        approvalRef: "a1f",
+        toolName: "write",
+        reason: "写入配置",
+      }),
+    ).toContain("a1f");
+
+    expect(
+      renderGatewayEvent({
         type: "agent.summary",
         sessionId: "sess_1",
         runId: "run_1",
@@ -113,6 +132,8 @@ describe("render helpers", () => {
     expect(renderSessionSummaries([])).toBe("当前还没有会话。");
     expect(renderHelp()).toContain("/sessions");
     expect(renderHelp()).toContain("/use");
+    expect(renderHelp()).toContain("/approval auto");
+    expect(renderHelp()).toContain("/approval default");
     expect(renderHelp()).toContain("/approve");
     expect(renderHelp()).toContain("/deny");
     expect(renderHelp()).toContain("/session rm");

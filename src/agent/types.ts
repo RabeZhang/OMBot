@@ -39,7 +39,6 @@ export interface AgentRunInput {
   runId: string;
   promptContext: PromptContext;
   input: AgentRuntimeInput;
-  toolProfile: string;
 }
 
 export type AgentRuntimeEvent =

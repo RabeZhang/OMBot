@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { InMemoryApprovalCenter } from "../../src/gateway/approvals";
 import { InMemoryEventBus } from "../../src/gateway/event-bus";
+import { InMemoryToolApprovalModeController } from "../../src/tools/approval-mode";
 import { ToolApprovalDeniedError } from "../../src/tools/approval-errors";
 import { runWithToolRuntimeContext } from "../../src/tools/runtime-context";
 import { wrapProtectedAgentTools } from "../../src/tools/secure-execution";
@@ -28,6 +29,7 @@ describe("wrapProtectedAgentTools", () => {
       {
         approvalCenter: new InMemoryApprovalCenter({ eventBus: new InMemoryEventBus() }),
         approvalTimeoutSec: 1,
+        getApprovalMode: () => "default",
       },
     );
 
@@ -43,19 +45,21 @@ describe("wrapProtectedAgentTools", () => {
   it("blocks dangerous bash commands until approved", async () => {
     const eventBus = new InMemoryEventBus();
     const approvalCenter = new InMemoryApprovalCenter({ eventBus });
+    const approvalMode = new InMemoryToolApprovalModeController("default");
     const wrapped = wrapProtectedAgentTools(
       [createTestTool("bash")],
       {
         approvalCenter,
         approvalTimeoutSec: 2,
+        getApprovalMode: () => approvalMode.getMode(),
       },
     );
 
-    const approvalIdPromise = new Promise<string>((resolve) => {
+    const approvalRefPromise = new Promise<string>((resolve) => {
       const unsubscribe = eventBus.subscribe(async (event) => {
         if (event.type === "approval.required") {
           unsubscribe();
-          resolve(event.approvalId);
+          resolve(event.approvalRef);
         }
       });
     });
@@ -64,9 +68,9 @@ describe("wrapProtectedAgentTools", () => {
       wrapped[0]!.execute("tool_call_1", { command: "rm -rf /tmp/test" }),
     );
 
-    const approvalId = await approvalIdPromise;
+    const approvalRef = await approvalRefPromise;
     await approvalCenter.resolve({
-      approvalId,
+      approvalRef,
       action: "approve_once",
       resolvedBy: "tester",
     });
@@ -79,19 +83,21 @@ describe("wrapProtectedAgentTools", () => {
   it("throws and stops on denied protected tools", async () => {
     const eventBus = new InMemoryEventBus();
     const approvalCenter = new InMemoryApprovalCenter({ eventBus });
+    const approvalMode = new InMemoryToolApprovalModeController("default");
     const wrapped = wrapProtectedAgentTools(
       [createTestTool("write")],
       {
         approvalCenter,
         approvalTimeoutSec: 2,
+        getApprovalMode: () => approvalMode.getMode(),
       },
     );
 
-    const approvalIdPromise = new Promise<string>((resolve) => {
+    const approvalRefPromise = new Promise<string>((resolve) => {
       const unsubscribe = eventBus.subscribe(async (event) => {
         if (event.type === "approval.required") {
           unsubscribe();
-          resolve(event.approvalId);
+          resolve(event.approvalRef);
         }
       });
     });
@@ -100,13 +106,41 @@ describe("wrapProtectedAgentTools", () => {
       wrapped[0]!.execute("tool_call_1", { file: "test.txt", content: "hello" }),
     );
 
-    const approvalId = await approvalIdPromise;
+    const approvalRef = await approvalRefPromise;
     await approvalCenter.resolve({
-      approvalId,
+      approvalRef,
       action: "deny",
       resolvedBy: "tester",
     });
 
     await expect(execution).rejects.toBeInstanceOf(ToolApprovalDeniedError);
+  });
+
+  it("bypasses approval in auto mode for protected tools", async () => {
+    const eventBus = new InMemoryEventBus();
+    const approvalCenter = new InMemoryApprovalCenter({ eventBus });
+    const approvalMode = new InMemoryToolApprovalModeController("auto");
+    const wrapped = wrapProtectedAgentTools(
+      [createTestTool("write")],
+      {
+        approvalCenter,
+        approvalTimeoutSec: 2,
+        getApprovalMode: () => approvalMode.getMode(),
+      },
+    );
+
+    const received: string[] = [];
+    eventBus.subscribe(async (event) => {
+      received.push(event.type);
+    });
+
+    const result = await runWithToolRuntimeContext({ sessionId: "sess_1" }, () =>
+      wrapped[0]!.execute("tool_call_1", { file: "test.txt", content: "hello" }),
+    );
+
+    expect(result).toMatchObject({
+      content: [{ type: "text", text: "write-ok" }],
+    });
+    expect(received).toEqual([]);
   });
 });

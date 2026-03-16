@@ -1,7 +1,7 @@
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 
-import { createId } from "../shared/ids";
-import type { ApprovalCenter } from "../gateway/types";
+import { createId, createShortRef } from "../shared/ids";
+import type { ApprovalCenter, ToolApprovalMode } from "../gateway/types";
 import { ToolApprovalDeniedError, ToolApprovalTimeoutError } from "./approval-errors";
 import { inspectToolRisk } from "./risk-inspector";
 import { getCurrentToolSessionId } from "./runtime-context";
@@ -9,6 +9,7 @@ import { getCurrentToolSessionId } from "./runtime-context";
 export interface SecureExecutionOptions {
   approvalCenter: ApprovalCenter;
   approvalTimeoutSec: number;
+  getApprovalMode: () => ToolApprovalMode;
 }
 
 export function wrapProtectedAgentTools(
@@ -33,16 +34,28 @@ export function wrapProtectedAgentTools(
           throw new Error(`Protected tool ${tool.name} missing runtime session context`);
         }
 
+        if (options.getApprovalMode() === "auto") {
+          return tool.execute(toolCallId, params, signal, onUpdate);
+        }
+
         const inspection = inspectToolRisk(tool.name, params);
         if (!inspection.requiresApproval) {
           return tool.execute(toolCallId, params, signal, onUpdate);
         }
 
         const approvalId = createId("approval");
+        let approvalRef = createShortRef("a");
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          if ((await options.approvalCenter.getByRef(approvalRef)) == null) {
+            break;
+          }
+          approvalRef = createShortRef("a");
+        }
         const expiresAt = new Date(Date.now() + options.approvalTimeoutSec * 1000).toISOString();
 
         await options.approvalCenter.request({
           approvalId,
+          approvalRef,
           sessionId,
           toolCallId,
           toolName: tool.name,

@@ -136,42 +136,5 @@ export const monitorsConfigSchema = z
     }
   });
 
-export const toolProfilePolicySchema = z
-  .object({
-    defaultAction: z.enum(["allow", "deny"]),
-    allow: z.array(z.string().min(1)).optional(),
-    deny: z.array(z.string().min(1)).optional(),
-    requireConfirmation: z.array(z.string().min(1)).optional(),
-  })
-  .superRefine((value, ctx) => {
-    // 只有已显式允许的工具，才允许继续声明“需要确认”。
-    const allow = new Set(value.allow ?? []);
-    for (const toolName of value.requireConfirmation ?? []) {
-      if (!allow.has(toolName)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `requireConfirmation 中的工具必须同时出现在 allow 中: ${toolName}`,
-          path: ["requireConfirmation"],
-        });
-      }
-    }
-  });
-
-export const toolPolicyConfigSchema = z
-  .object({
-    profiles: z.record(z.string(), toolProfilePolicySchema),
-  })
-  .superRefine((value, ctx) => {
-    // readonly 是整个系统的安全回退档，Phase 1 强制要求存在。
-    if (!value.profiles.readonly) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Phase 1 必须存在 readonly profile",
-        path: ["profiles", "readonly"],
-      });
-    }
-  });
-
 export type OmbotConfig = z.infer<typeof ombotConfigSchema>;
 export type MonitorsConfig = z.infer<typeof monitorsConfigSchema>;
-export type ToolPolicyConfig = z.infer<typeof toolPolicyConfigSchema>;

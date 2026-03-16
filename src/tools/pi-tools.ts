@@ -1,7 +1,7 @@
 import { Type, type TSchema } from "@sinclair/typebox";
 import type { AgentTool, AgentToolResult } from "@mariozechner/pi-agent-core";
 
-import type { OmbotToolDefinition, ToolPolicy, ToolPolicyInput, ToolRiskLevel } from "./types";
+import type { OmbotToolDefinition } from "./types";
 
 /**
  * 将 OMBot 的 OmbotToolDefinition 适配为 pi-agent-core 的 AgentTool。

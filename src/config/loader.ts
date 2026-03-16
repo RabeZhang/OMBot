@@ -11,22 +11,18 @@ import {
   camelizeKeys,
   normalizeMonitorsConfig,
   normalizeOmbotConfigPaths,
-  normalizeToolPolicyConfig,
 } from "./normalize";
 import {
   monitorsConfigSchema,
   ombotConfigSchema,
-  toolPolicyConfigSchema,
   type MonitorsConfig,
   type OmbotConfig,
-  type ToolPolicyConfig,
 } from "./schema";
 
 export interface LoadedConfig {
   ombot: OmbotConfig;
   llm: LlmConfig;
   monitors: MonitorsConfig;
-  toolPolicy: ToolPolicyConfig;
 }
 
 export interface ConfigLoader {
@@ -60,18 +56,14 @@ export class FileSystemConfigLoader implements ConfigLoader {
 
     const ombotRaw = await readYamlFile(path.join(absoluteConfigDir, "ombot.yaml"));
     const monitorsRaw = await readYamlFile(path.join(absoluteConfigDir, "monitors.yaml"));
-    const toolPolicyRaw = await readYamlFile(path.join(absoluteConfigDir, "tool_policy.yaml"));
-
     const ombotParsed = parseWithSchema("ombot.yaml", ombotConfigSchema, camelizeKeys(ombotRaw));
     const monitorsParsed = parseWithSchema("monitors.yaml", monitorsConfigSchema, camelizeKeys(monitorsRaw));
-    const toolPolicyParsed = parseWithSchema("tool_policy.yaml", toolPolicyConfigSchema, camelizeKeys(toolPolicyRaw));
 
     return {
       // 加载器的输出就是系统内的“标准配置对象”，路径和字段名都已经规范化。
       ombot: normalizeOmbotConfigPaths(ombotParsed, projectRoot),
       llm: loadLlmConfigFromEnv(),
       monitors: normalizeMonitorsConfig(monitorsParsed),
-      toolPolicy: normalizeToolPolicyConfig(toolPolicyParsed),
     };
   }
 }

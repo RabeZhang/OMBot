@@ -6,6 +6,7 @@ import type { TranscriptEntry } from "../memory/types";
 import type { AuditStore } from "../audit/types";
 import type { LlmClient } from "../llm/types";
 import { deleteEventFilesBySessionId } from "../events/files";
+import type { ToolApprovalModeController } from "../tools/approval-mode";
 import type {
   ApprovalCenter,
   ApprovalResolutionInput,
@@ -30,6 +31,7 @@ interface GatewayCoreOptions {
   };
   llmClient?: LlmClient;
   eventsDir?: string;
+  toolApprovalMode: ToolApprovalModeController;
 }
 
 class AsyncEventQueue {
@@ -96,6 +98,7 @@ export class GatewayCore implements Gateway {
   };
   private readonly llmClient?: LlmClient;
   private readonly eventsDir?: string;
+  private readonly toolApprovalMode: ToolApprovalModeController;
 
   constructor(options: GatewayCoreOptions) {
     this.sessionStore = options.sessionStore;
@@ -107,6 +110,7 @@ export class GatewayCore implements Gateway {
     this.promptContext = options.promptContext ?? {};
     this.llmClient = options.llmClient;
     this.eventsDir = options.eventsDir;
+    this.toolApprovalMode = options.toolApprovalMode;
 
     this.eventBus.subscribe(async (event) => {
       if (event.type !== "approval.required") {
@@ -120,6 +124,7 @@ export class GatewayCore implements Gateway {
         createdAt: nowIsoString(),
         payload: {
           approvalId: event.approvalId,
+          approvalRef: event.approvalRef,
           status: "pending",
           toolName: event.toolName,
           reason: event.reason,
@@ -132,7 +137,7 @@ export class GatewayCore implements Gateway {
           sessionId: event.sessionId,
           toolName: event.toolName,
           riskLevel: "privileged",
-          input: JSON.stringify({ reason: event.reason }),
+          input: JSON.stringify({ reason: event.reason, approvalRef: event.approvalRef }),
           decision: "allowed",
           approvalId: event.approvalId,
           resultStatus: "pending",
@@ -381,8 +386,18 @@ export class GatewayCore implements Gateway {
   }
 
   async resolveApproval(input: ApprovalResolutionInput): Promise<void> {
+    const currentState = input.approvalId
+      ? await this.approvalCenter.get(input.approvalId)
+      : input.approvalRef
+        ? await this.approvalCenter.getByRef(input.approvalRef)
+        : null;
+
     await this.approvalCenter.resolve(input);
-    const state = await this.approvalCenter.get(input.approvalId);
+    const state = input.approvalId
+      ? await this.approvalCenter.get(input.approvalId)
+      : currentState?.approvalId
+        ? await this.approvalCenter.get(currentState.approvalId)
+        : null;
     if (!state) {
       return;
     }
@@ -394,6 +409,7 @@ export class GatewayCore implements Gateway {
       createdAt: state.resolvedAt ?? nowIsoString(),
       payload: {
         approvalId: state.approvalId,
+        approvalRef: state.approvalRef,
         status: state.status,
         toolName: state.toolName,
         reason: state.reason,
@@ -408,7 +424,7 @@ export class GatewayCore implements Gateway {
         sessionId: state.sessionId,
         toolName: state.toolName,
         riskLevel: "privileged",
-        input: JSON.stringify({ reason: state.reason }),
+        input: JSON.stringify({ reason: state.reason, approvalRef: state.approvalRef }),
         decision: state.status === "approved_once" ? "approved" : "denied",
         approvalId: state.approvalId,
         resultStatus: "success",
@@ -420,6 +436,14 @@ export class GatewayCore implements Gateway {
 
   async listSessions() {
     return this.sessionStore.list();
+  }
+
+  async getToolApprovalMode() {
+    return this.toolApprovalMode.getMode();
+  }
+
+  async setToolApprovalMode(mode: "default" | "auto"): Promise<void> {
+    this.toolApprovalMode.setMode(mode);
   }
 
   async getSession(sessionId: string) {
@@ -519,7 +543,6 @@ export class GatewayCore implements Gateway {
         ...this.promptContext,
         sessionHistory,
       },
-      toolProfile: "readonly",
     })) {
       if (event.type === "agent.message_update") {
         await this.transcriptStore.append({
@@ -668,6 +691,7 @@ export class GatewayCore implements Gateway {
       case "approval":
         return [
           `approval: ${String(entry.payload.status ?? "unknown")}`,
+          `ref=${String(entry.payload.approvalRef ?? "unknown")}`,
           `tool=${String(entry.payload.toolName ?? "unknown")}`,
           `reason=${String(entry.payload.reason ?? "")}`,
           ...(entry.payload.resolvedBy ? [`resolvedBy=${String(entry.payload.resolvedBy)}`] : []),

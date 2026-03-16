@@ -59,7 +59,6 @@ describe("FileSystemConfigLoader", () => {
     expect(path.isAbsolute(loaded.ombot.events.dir)).toBe(true);
     expect(loaded.ombot.events.defaultTimezone).toBe("Asia/Shanghai");
     expect(loaded.monitors.monitors.length).toBeGreaterThanOrEqual(2);
-    expect(loaded.toolPolicy.profiles.readonly.defaultAction).toBe("deny");
   });
 
   it("throws when required env var is missing", async () => {
@@ -110,11 +109,6 @@ monitors:
     interval: 60s
     target:
       process_name: nginx
-`,
-      "config/tool_policy.yaml": `
-profiles:
-  readonly:
-    default_action: deny
 `,
       "config/prompts/system.txt": "system prompt",
       "workspace/RUNBOOK.md": "# runbook",
@@ -174,11 +168,6 @@ monitors:
     interval: 60s
     target:
       process_name: nginx
-`,
-      "config/tool_policy.yaml": `
-profiles:
-  readonly:
-    default_action: deny
 `,
       "config/prompts/system.txt": "system prompt",
       "workspace/RUNBOOK.md": "# runbook",

@@ -10,6 +10,7 @@ import { loadProjectEnv } from "./config/dotenv";
 import { FileSystemConfigLoader } from "./config/loader";
 import { FileSessionStore } from "./memory/session-store";
 import { FileTranscriptStore } from "./memory/transcript-store";
+import { InMemoryToolApprovalModeController } from "./tools/approval-mode";
 import { createAllPiTools } from "./tools/pi-tools";
 import { createPiModel } from "./llm/pi-model";
 import { MonitorEngine } from "./monitor/engine";
@@ -31,7 +32,12 @@ export async function bootstrap(projectRoot: string) {
   await ensureRuntimeDirs(config.ombot.paths);
 
   const eventBus = new InMemoryEventBus();
-  const approvalCenter = new InMemoryApprovalCenter({ eventBus });
+  const approvalCenter = new InMemoryApprovalCenter({
+    eventBus,
+    persistenceFilePath: path.join(config.ombot.paths.dataDir, "approvals", "pending.json"),
+  });
+  await approvalCenter.init?.();
+  const toolApprovalMode = new InMemoryToolApprovalModeController("default");
   const piModel = createPiModel(config.llm);
   const piTools = createAllPiTools({
     cwd: projectRoot,
@@ -40,6 +46,7 @@ export async function bootstrap(projectRoot: string) {
     secureExecution: {
       approvalCenter,
       approvalTimeoutSec: config.ombot.gateway.approvalTimeoutSec,
+      getApprovalMode: () => toolApprovalMode.getMode(),
     },
   });
   const agentRuntime = new PiAgentRuntimeAdapter({
@@ -70,6 +77,7 @@ export async function bootstrap(projectRoot: string) {
     transcriptStore,
     auditStore,
     eventsDir: config.ombot.events.dir,
+    toolApprovalMode,
   });
 
   const monitorEngine = new MonitorEngine({

@@ -32,7 +32,6 @@ describe("FakeAgentRuntimeAdapter", () => {
           kind: "user_message",
           content: "现在 nginx 怎么样？",
         },
-        toolProfile: "readonly",
       }),
     );
 

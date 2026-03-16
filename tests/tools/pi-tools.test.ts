@@ -78,6 +78,21 @@ describe("createAllPiTools", () => {
             cwd: process.cwd(),
             eventsDir: `${process.cwd()}/workspace/events`,
             defaultTimezone: "Asia/Shanghai",
+            secureExecution: {
+                approvalCenter: {
+                    request: async () => {},
+                    resolve: async () => {},
+                    get: async () => null,
+                    getByRef: async () => null,
+                    waitForResolution: async () => ({
+                        approvalId: "approval_test",
+                        status: "approved_once",
+                        resolvedAt: new Date().toISOString(),
+                    }),
+                },
+                approvalTimeoutSec: 60,
+                getApprovalMode: () => "default",
+            },
         });
 
         const names = tools.map((tool) => tool.name);

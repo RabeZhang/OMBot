@@ -1,5 +1,7 @@
 import type { SessionSnapshot, SessionSummary } from "../memory/types";
 
+export type ToolApprovalMode = "default" | "auto";
+
 export interface UserMessageInput {
   content: string;
   sessionId?: string;
@@ -31,6 +33,7 @@ export interface ScheduledEventInput {
 
 export interface ApprovalRequest {
   approvalId: string;
+  approvalRef: string;
   sessionId: string;
   toolCallId: string;
   toolName: string;
@@ -39,7 +42,8 @@ export interface ApprovalRequest {
 }
 
 export interface ApprovalResolutionInput {
-  approvalId: string;
+  approvalId?: string;
+  approvalRef?: string;
   action: "approve_once" | "deny";
   resolvedBy: string;
 }
@@ -70,8 +74,8 @@ export type GatewayEvent =
   | { type: "monitor.alert"; sessionId: string; runId: string; summary: string }
   | { type: "monitor.recovered"; sessionId: string; runId: string; summary: string }
   | { type: "scheduled_event.accepted"; sessionId: string; runId: string; eventId: string; sourceFile: string; summary: string }
-  | { type: "approval.required"; sessionId: string; approvalId: string; toolName: string; reason: string }
-  | { type: "approval.resolved"; sessionId: string; approvalId: string; action: "approve_once" | "deny" };
+  | { type: "approval.required"; sessionId: string; approvalId: string; approvalRef: string; toolName: string; reason: string }
+  | { type: "approval.resolved"; sessionId: string; approvalId: string; approvalRef: string; action: "approve_once" | "deny" };
 
 export interface GatewayRunHandle {
   sessionId: string;
@@ -85,9 +89,11 @@ export interface EventBus {
 }
 
 export interface ApprovalCenter {
+  init?(): Promise<void>;
   request(input: ApprovalRequest): Promise<void>;
   resolve(input: ApprovalResolutionInput): Promise<void>;
   get(approvalId: string): Promise<ApprovalState | null>;
+  getByRef(approvalRef: string): Promise<ApprovalState | null>;
   waitForResolution(
     approvalId: string,
     expiresAt: string,
@@ -104,6 +110,8 @@ export interface Gateway {
   dispatchMonitorEvent(input: MonitorEventInput): Promise<GatewayRunHandle>;
   dispatchScheduledEvent(input: ScheduledEventInput): Promise<GatewayRunHandle>;
   resolveApproval(input: ApprovalResolutionInput): Promise<void>;
+  getToolApprovalMode(): Promise<ToolApprovalMode>;
+  setToolApprovalMode(mode: ToolApprovalMode): Promise<void>;
   listSessions(): Promise<SessionSummary[]>;
   getSession(sessionId: string): Promise<SessionSnapshot | null>;
   deleteSession(sessionId: string): Promise<void>;
