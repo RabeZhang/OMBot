@@ -39,6 +39,11 @@ events:
   max_queued_per_session: 5
   startup_scan: true
 
+host_profile:
+  auto_refresh_on_start: true
+  json_path: "./data/host/environment.json"
+  workspace_profile_path: "./workspace/HOST_PROFILE.md"
+
 paths:
   data_dir: "./data"
   workspace_dir: "./workspace"

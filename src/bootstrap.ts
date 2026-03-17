@@ -16,11 +16,21 @@ import { createPiModel } from "./llm/pi-model";
 import { MonitorEngine } from "./monitor/engine";
 import { SqliteAuditStore } from "./audit/sqlite-store";
 import { EventsWatcher } from "./events/watcher";
+import { HostEnvironmentCollector } from "./host/collector";
+import { HostProfileManager } from "./host/files";
 
-async function ensureRuntimeDirs(paths: { dataDir: string; transcriptsDir: string; auditDbPath: string }) {
+async function ensureRuntimeDirs(paths: {
+  dataDir: string;
+  transcriptsDir: string;
+  auditDbPath: string;
+  hostProfileJsonPath: string;
+  hostWorkspaceProfilePath: string;
+}) {
   await fs.mkdir(paths.dataDir, { recursive: true });
   await fs.mkdir(paths.transcriptsDir, { recursive: true });
   await fs.mkdir(path.dirname(paths.auditDbPath), { recursive: true });
+  await fs.mkdir(path.dirname(paths.hostProfileJsonPath), { recursive: true });
+  await fs.mkdir(path.dirname(paths.hostWorkspaceProfilePath), { recursive: true });
 }
 
 export async function bootstrap(projectRoot: string) {
@@ -29,7 +39,27 @@ export async function bootstrap(projectRoot: string) {
 
   const configLoader = new FileSystemConfigLoader();
   const config = await configLoader.load(`${projectRoot}/config`);
-  await ensureRuntimeDirs(config.ombot.paths);
+  await ensureRuntimeDirs({
+    ...config.ombot.paths,
+    hostProfileJsonPath: config.ombot.hostProfile.jsonPath,
+    hostWorkspaceProfilePath: config.ombot.hostProfile.workspaceProfilePath,
+  });
+
+  const hostProfileManager = new HostProfileManager({
+    collector: new HostEnvironmentCollector({
+      executionMode: config.ombot.execution.mode,
+      workspaceDir: config.ombot.paths.workspaceDir,
+      dataDir: config.ombot.paths.dataDir,
+    }),
+    paths: {
+      jsonPath: config.ombot.hostProfile.jsonPath,
+      workspaceProfilePath: config.ombot.hostProfile.workspaceProfilePath,
+    },
+  });
+
+  if (config.ombot.hostProfile.autoRefreshOnStart) {
+    await hostProfileManager.refresh();
+  }
 
   const eventBus = new InMemoryEventBus();
   const approvalCenter = new InMemoryApprovalCenter({
@@ -96,6 +126,7 @@ export async function bootstrap(projectRoot: string) {
 
   return {
     config,
+    hostProfileManager,
     piModel,
     agentRuntime,
     promptContext,

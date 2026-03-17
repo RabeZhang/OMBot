@@ -69,6 +69,17 @@ export const ombotConfigSchema = z
         maxQueuedPerSession: 5,
         startupScan: true,
       }),
+    hostProfile: z
+      .object({
+        autoRefreshOnStart: z.boolean().default(true),
+        jsonPath: z.string().min(1).default("./data/host/environment.json"),
+        workspaceProfilePath: z.string().min(1).default("./workspace/HOST_PROFILE.md"),
+      })
+      .default({
+        autoRefreshOnStart: true,
+        jsonPath: "./data/host/environment.json",
+        workspaceProfilePath: "./workspace/HOST_PROFILE.md",
+      }),
     paths: z.object({
       dataDir: z.string().min(1),
       workspaceDir: z.string().min(1),

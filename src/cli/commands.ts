@@ -4,12 +4,12 @@
  */
 
 export interface CliCommand {
-  type: "help" | "sessions" | "use" | "clear" | "exit" | "events" | "event" | "session" | "approval" | "approval_mode" | "message";
+  type: "help" | "sessions" | "use" | "clear" | "exit" | "events" | "event" | "session" | "approval" | "approval_mode" | "host" | "message";
   sessionId?: string;
   sessionIndex?: number; // 用于 /use 1, /use 2 这样的编号切换
   content?: string;
   limit?: number | "all";
-  action?: "list" | "show" | "rm" | "approve_once" | "deny" | "auto" | "default";
+  action?: "list" | "show" | "rm" | "approve_once" | "deny" | "auto" | "default" | "refresh";
   filename?: string;
 }
 
@@ -34,6 +34,18 @@ export function parseCliCommand(line: string): CliCommand {
 
   if (trimmed === "/clear") {
     return { type: "clear" };
+  }
+
+  if (trimmed === "/host") {
+    return { type: "host", action: "list" };
+  }
+
+  if (trimmed === "/host show") {
+    return { type: "host", action: "show" };
+  }
+
+  if (trimmed === "/host refresh") {
+    return { type: "host", action: "refresh" };
   }
 
   if (trimmed === "/approval auto") {

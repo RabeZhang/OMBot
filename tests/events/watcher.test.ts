@@ -41,6 +41,10 @@ function createGatewaySpy(calls: ScheduledEventInput[]): Gateway {
       };
     },
     async resolveApproval() {},
+    async getToolApprovalMode() {
+      return "default";
+    },
+    async setToolApprovalMode() {},
     async listSessions() {
       return [];
     },

@@ -1,8 +1,22 @@
 # OMBot 项目需求文档
 
-**版本**: v0.4  
-**状态**: 草稿（已根据 pi-mono 与 openclaw 源码更新技术路线）  
-**最后更新**: 2026-03-06
+**版本**: v0.5  
+**状态**: 需求与现状对齐稿  
+**最后更新**: 2026-03-17
+
+---
+
+### 当前实现对齐说明
+
+本文档仍然保留中长期目标，但已按 2026-03-17 的代码主链做一轮对齐：
+
+- 已实现的能力会尽量在对应章节标注“当前状态”
+- 尚未实现但仍保留的内容，继续视为目标能力
+- 已经废弃的旧方案（如 `tool_policy.yaml` profile 主链）不再作为当前实现依据
+
+当前完成度的总览请结合：
+
+- [current-implementation-gap-summary.md](/Users/zhangliang/PycharmProjects/OMBot/docs/current-implementation-gap-summary.md)
 
 ---
 
@@ -11,8 +25,10 @@
 ### 配套设计文档
 
 - `docs/gateway-architecture.md`：Gateway / Control Plane 的职责边界、协议模型与控制面设计
-- `docs/phase1-design.md`：基于 Gateway 架构的 Phase 1 MVP 详细设计
-- `docs/phase1-implementation-spec.md`：Phase 1 的配置 schema、TypeScript 接口草案与脚手架清单
+- `docs/events-integration-plan.md`：事件能力接入与事件文件模型
+- `docs/production-gap-analysis.md`：当前主能力缺口与下一阶段任务
+- `docs/safe-tool-execution-plan.md`：安全执行与 human-in-the-loop 方案
+- `docs/host-environment-capability-plan.md`：宿主环境认知能力设计
 
 ---
 
@@ -130,6 +146,13 @@ OMBot 是一个运行在 Unix 类系统（Linux / macOS）上的 **AI Agent 形�
 - 维护多轮对话上下文，结合 Memory System 提供连贯的交互体验
 - 自主决策：根据输入决定调用哪些工具、是否告警、是否自动处理
 
+**当前状态**
+
+- 已实现本地 CLI -> Gateway -> Agent -> Tool 的主调用链
+- 已实现多 session、transcript、event、基础审批、宿主环境画像注入
+- 监控事件自动进入 Agent 分析闭环尚未完成
+- `steer / followup / interrupt` 等输入队列语义尚未实现
+
 **实现路线**
 
 - 参考 `createAgentSession()` 的思路，为 OMBot 设计单一的组合入口（Composition Root），统一组装模型、工具、配置、会话、扩展、记忆与通信层
@@ -149,7 +172,7 @@ OMBot 是一个运行在 Unix 类系统（Linux / macOS）上的 **AI Agent 形�
 
 - `上下文 != 记忆`，上下文仅表示当前这一轮真正送给模型的材料
 - 每轮推理的上下文由宿主系统构建，至少包含：system prompt、当前会话历史、工具调用结果、当前监控事件载荷、按需召回的记忆片段、固定注入的工作区文件
-- 固定注入的运维工作区文件建议包括：`RUNBOOK.md`、`HOST_PROFILE.md`、`ALERT_POLICY.md`、`TOOLS.md`、`USER.md`
+- 当前固定注入文件以 `RUNBOOK.md`、`HOST_PROFILE.md`、`TOOLS.md` 为主，其余工作区文档仍可作为后续扩展
 - 需要具备上下文可观测能力，能看到哪些消息、文件和工具 schema 占用了上下文预算
 
 **运维工作区**
@@ -175,19 +198,25 @@ OMBot 是一个运行在 Unix 类系统（Linux / macOS）上的 **AI Agent 形�
 
 ### 3.2 Tool / Plugin Registry（工具注册系统）
 
-工具分为**内置工具**和**远程适配器**两类，统一注册到 Agent 的工具链中。
+工具分为**本机工具**、**事件工具**和**远程适配器（后续）**三类，统一注册到 Agent 的工具链中。
+
+**当前状态**
+
+- 当前主链已接入本机只读工具、pi-mom 文件/命令工具、event tools
+- 远程适配器尚未实现
+- 插件/扩展注册机制尚未实现
 
 **技术设计**
 
 - 工具采用"声明与执行分离"设计：注册阶段提供 `name`、`description`、`parameters schema`，执行阶段实现 `execute()`
 - 本机工具、远程工具、通知工具在 Agent 看来都是统一的可调用工具
-- 所有工具在真正执行前都经过统一的 `Tool Policy Layer`，用于确认、阻断、审计和结果改写
+- 当前高风险工具主要通过 `secure-execution + approval center` 控制，统一的参数级策略层仍在后续完善
 - Phase 2 起支持通过扩展机制注册额外工具，但运维安全相关拦截能力应内建，不完全依赖插件
 
 **三层安全模型**
 
 1. **Execution Environment**：决定工具运行在哪，例如宿主机本地、受限沙箱、远程 HTTP 适配器
-2. **Tool Policy**：决定工具是否暴露给模型，以及是否允许在当前渠道、会话、主机和参数条件下调用
+2. **Tool Policy / Execution Policy**：决定工具是否暴露给模型，以及是否允许在当前渠道、会话、主机和参数条件下调用
 3. **Approval / Elevation**：决定高风险操作是否需要用户确认、一次性授权或临时提权执行
 
 > `sandbox` 解决"在哪跑"，`tool policy` 解决"能不能给模型用"，`approval/elevation` 解决"是否允许这次高风险执行"。
@@ -200,12 +229,13 @@ OMBot 是一个运行在 Unix 类系统（Linux / macOS）上的 **AI Agent 形�
 - 所有 `mutating` / `privileged` 工具调用必须记录结构化审计日志
 - 策略层支持按 agent profile、provider、channel、session 动态收缩工具暴露面
 
-**工具分组与 Profile**
+**当前安全模型**
 
-- `readonly`：仅监控查询、日志读取、端口检查、HTTP 健康检查
-- `ops`：允许受控 shell、服务控制、本机排障与远程适配器调用
-- `notify`：只允许通知、会话查询和摘要生成
-- `repair`：允许自动修复动作，但必须经过审批或预授权
+- 风险等级仍保留 `readonly / mutating / privileged`
+- 当前真正生效的是：
+  - `/approval default`
+  - `/approval auto`
+- 旧的 `tool_policy.yaml` profile 方案已不再是主链实现
 
 #### 3.2.1 内置本机监控工具
 
@@ -215,13 +245,29 @@ OMBot 是一个运行在 Unix 类系统（Linux / macOS）上的 **AI Agent 形�
 | `get_cpu_usage` | 获取当前 CPU 占用率（整体 + 各核心）| 普通 |
 | `get_memory_usage` | 获取内存和 Swap 使用情况 | 普通 |
 | `get_disk_usage` | 获取各磁盘分区使用情况 | 普通 |
-| `get_network_stats` | 获取网络流量、连接数 | 普通 |
 | `get_port_status` | 检查指定端口是否处于监听状态 | 普通 |
 | `check_http_endpoint` | 对 HTTP/HTTPS 端点发起健康检查 | 普通 |
-| `get_system_logs` | 获取系统日志片段（journald / syslog）| 普通/root |
-| `restart_service` | 通过 systemd / launchd 重启服务 | root |
-| `stop_service` | 停止服务 | root |
-| `execute_shell` | 执行受限 shell 命令（白名单控制）| root / 配置授权 |
+
+**当前额外已实现工具**
+
+- `bash`
+- `read`
+- `edit`
+- `write`
+- `grep`
+- `find`
+- `create_event`
+- `list_events`
+- `read_event`
+- `delete_event`
+
+以下工具仍属于规划项，当前主链未实现：
+
+- `get_network_stats`
+- `get_system_logs`
+- `restart_service`
+- `stop_service`
+- `execute_shell`
 
 #### 3.2.2 远程服务器适配器（可配置）
 
@@ -363,9 +409,9 @@ monitors:
 
 **Session 设计**
 
-- 参考 pi-mono 的 append-only session tree 设计，使用 `entry + parentId` 的方式持久化会话，而不是只保留平铺消息数组
-- 支持 `message`、`tool_result`、`compaction_summary`、`custom_event`、`audit_record` 等 entry 类型
-- 通过从当前叶子节点回溯构建上下文，支持分支会话、回放、压缩和审计
+- 当前实现采用 append-only transcript，但还不是完整的 session tree
+- 已支持 `message`、`tool_call`、`tool_result`、`scheduled_event`、`approval`、`summary` 等 entry 类型
+- 分支会话、上下文压缩可观测性、完整 compaction 机制仍未实现
 
 **长期记忆形态**
 
@@ -410,6 +456,11 @@ monitors:
 **Phase 1（当前）**：本地 CLI 交互，日志输出  
 **Phase 2**：WebSocket Server，为后续客户端提供双向通信接口  
 **Phase 3**：接入企业微信 Bot、飞书 Bot、短信等通知渠道
+
+**当前状态**
+
+- 本地 CLI / TUI 已可用
+- WebSocket / HTTP / Bot 渠道尚未实现
 
 **设计原则**
 
@@ -712,14 +763,14 @@ OMBot/
 **目标**：OMBot 可以作为本地 CLI 工具运行，具备完整的本机监控和 AI 对话能力。
 
 **交付内容**：
-- [ ] 项目脚手架搭建（基于 `pi-agent-core` / `pi-ai` 的最小集成）
-- [ ] 配置文件加载系统
-- [ ] 内置本机监控工具集
-- [ ] Tool Policy Layer（风险分级、确认、审计）
-- [ ] Monitor Engine（定时调度 + 阈值告警 + 事件投递）
-- [ ] Agent Core（LLM + Function Calling + 工具调用 + Session）
-- [ ] CLI 交互界面（本地测试用）
-- [ ] Session Log 与基础审计系统
+- [x] 项目脚手架搭建（基于 `pi-agent-core` / `pi-ai` 的最小集成）
+- [x] 配置文件加载系统
+- [x] 内置本机监控工具集（首批）
+- [~] 安全执行层（已实现第一版审批与审计，仍需继续补强）
+- [~] Monitor Engine（定时调度 + 阈值告警 已实现；事件自动进入 Agent 分析未完成）
+- [x] Agent Core（LLM + Function Calling + 工具调用 + Session）
+- [x] CLI 交互界面（本地测试用）
+- [x] Session Log 与基础审计系统
 
 ### Phase 2：远程服务器接入
 

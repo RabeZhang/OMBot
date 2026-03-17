@@ -37,7 +37,7 @@ export function renderGatewayEvent(event: GatewayEvent): string | null {
 
 export function renderSessionSummaries(
   sessions: SessionSummary[],
-  options?: { limit?: number; total?: number },
+  options?: { limit?: number | "all"; total?: number },
 ): string {
   if (sessions.length === 0) {
     return "当前还没有会话。";
@@ -67,6 +67,9 @@ export function renderHelp(): string {
     "/use <id|number>     切换到指定会话",
     "                       /use 1        - 切换到第 1 个会话",
     "                       /use sess_xxx - 用 sessionId 切换",
+    "/host                查看当前宿主环境摘要",
+    "/host refresh        重新采集宿主环境并更新 HOST_PROFILE",
+    "/host show           查看当前 HOST_PROFILE 内容",
     "/approval auto       切换到自动放行模式",
     "/approval default    切换到默认审批模式",
     "/approve <approvalRef> 批准当前高风险操作",

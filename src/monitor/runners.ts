@@ -35,13 +35,13 @@ async function checkProcess(rule: MonitorRuleConfig): Promise<MonitorCheckResult
             return {
                 ok: true,
                 summary: `进程 ${processName} 正在运行（找到 ${result.matches.length} 个匹配进程）`,
-                details: result,
+                details: { ...result },
             };
         }
         return {
             ok: false,
             summary: `进程 ${processName} 未运行`,
-            details: result,
+            details: { ...result },
         };
     } catch (err) {
         return {
@@ -67,21 +67,21 @@ async function checkResource(rule: MonitorRuleConfig): Promise<MonitorCheckResul
         switch (metric) {
             case "cpu_usage": {
                 const cpu = await getCpuUsageTool.execute({}, monitorCtx);
-                currentValue = cpu.estimatedUsagePercent;
-                details = cpu;
+                currentValue = cpu.usagePercent;
+                details = { ...cpu };
                 break;
             }
             case "memory_usage": {
                 const mem = await getMemoryUsageTool.execute({}, monitorCtx);
                 currentValue = mem.usagePercent;
-                details = mem;
+                details = { ...mem };
                 break;
             }
             case "disk_usage": {
                 const mountPoint = (rule.target.mountPoint as string) ?? "/";
                 const disk = await getDiskUsageTool.execute({ path: mountPoint }, monitorCtx);
                 currentValue = disk.usagePercent;
-                details = disk;
+                details = { ...disk };
                 break;
             }
             default:
@@ -120,9 +120,9 @@ async function checkPort(rule: MonitorRuleConfig): Promise<MonitorCheckResult> {
     try {
         const result = await getPortStatusTool.execute({ host, port }, monitorCtx);
         if (result.open) {
-            return { ok: true, summary: `端口 ${host}:${port} 正在监听`, details: result };
+            return { ok: true, summary: `端口 ${host}:${port} 正在监听`, details: { ...result } };
         }
-        return { ok: false, summary: `端口 ${host}:${port} 未监听`, details: result };
+        return { ok: false, summary: `端口 ${host}:${port} 未监听`, details: { ...result } };
     } catch (err) {
         return {
             ok: false,
@@ -142,11 +142,11 @@ async function checkHttp(rule: MonitorRuleConfig): Promise<MonitorCheckResult> {
 
         // 状态码不匹配 → 直接失败
         if (result.statusCode !== expectedStatus) {
-            return {
-                ok: false,
-                summary: `${url} 返回 ${result.statusCode}，预期 ${expectedStatus}`,
-                details: { ...result, expectedStatus },
-            };
+                return {
+                    ok: false,
+                    summary: `${url} 返回 ${result.statusCode}，预期 ${expectedStatus}`,
+                    details: { ...result, expectedStatus },
+                };
         }
 
         // 状态码正常，检查响应时间阈值（如果配置了 threshold）
@@ -165,7 +165,7 @@ async function checkHttp(rule: MonitorRuleConfig): Promise<MonitorCheckResult> {
         return {
             ok: true,
             summary: `${url} 健康检查通过（${result.statusCode}，${result.responseTimeMs}ms）`,
-            details: result,
+            details: { ...result },
         };
     } catch (err) {
         return {

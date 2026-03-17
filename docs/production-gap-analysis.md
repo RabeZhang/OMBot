@@ -47,7 +47,7 @@
 
 项目中已经存在若干安全相关骨架：
 
-- `ToolPolicy`
+- `secure-execution`
 - `ApprovalCenter`
 - 风险分级（`readonly / mutating / privileged`）
 - 审计存储
@@ -65,9 +65,8 @@
 
 相关代码：
 
-- [src/tools/policy.ts](/Users/zhangliang/PycharmProjects/OMBot/src/tools/policy.ts)
+- [src/tools/secure-execution.ts](/Users/zhangliang/PycharmProjects/OMBot/src/tools/secure-execution.ts)
 - [src/gateway/approvals.ts](/Users/zhangliang/PycharmProjects/OMBot/src/gateway/approvals.ts)
-- [config/tool_policy.yaml](/Users/zhangliang/PycharmProjects/OMBot/config/tool_policy.yaml)
 - [src/tools/local/bash.ts](/Users/zhangliang/PycharmProjects/OMBot/src/tools/local/bash.ts)
 
 ### 3.2 风险
@@ -135,8 +134,7 @@ Audit Store / Transcript
 2. 所有工具执行必须经过该层
 3. `mutating` / `privileged` 默认不能直通
 4. 将 `ApprovalCenter` 从“事件发布器”提升为“执行门禁”
-5. 将 `tool_policy.yaml` 真正接入运行时
-6. 高风险工具执行结果进入结构化审计
+5. 高风险工具执行结果进入结构化审计
 
 ### 3.7 结论
 

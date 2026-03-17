@@ -6,7 +6,13 @@ import { describe, expect, it } from "vitest";
 import { createLocalReadOnlyTools } from "../../src/tools/local";
 import { getProcessStatusTool } from "../../src/tools/local/process";
 import { checkHttpEndpointTool, getPortStatusTool } from "../../src/tools/local/network";
-import { getCpuUsageTool, getDiskUsageTool, getMemoryUsageTool } from "../../src/tools/local/resource";
+import {
+  getCpuUsageTool,
+  getDiskUsageTool,
+  getMemoryUsageTool,
+  parseLinuxMeminfo,
+  parseMacVmStat,
+} from "../../src/tools/local/resource";
 
 describe("local readonly tools", () => {
   it("exports the first batch of local readonly tools", () => {
@@ -52,7 +58,7 @@ describe("getProcessStatusTool", () => {
 });
 
 describe("resource tools", () => {
-  it("returns cpu usage estimate in expected range", async () => {
+  it("returns sampled cpu usage in expected range", async () => {
     const result = await getCpuUsageTool.execute(
       {},
       {
@@ -61,8 +67,10 @@ describe("resource tools", () => {
     );
 
     expect(result.coreCount).toBeGreaterThan(0);
-    expect(result.estimatedUsagePercent).toBeGreaterThanOrEqual(0);
-    expect(result.estimatedUsagePercent).toBeLessThanOrEqual(100);
+    expect(result.sampleWindowMs).toBeGreaterThan(0);
+    expect(result.usagePercent).toBeGreaterThanOrEqual(0);
+    expect(result.usagePercent).toBeLessThanOrEqual(100);
+    expect(result.estimatedUsagePercent).toBe(result.usagePercent);
   });
 
   it("returns memory usage summary", async () => {
@@ -76,9 +84,11 @@ describe("resource tools", () => {
     expect(result.totalBytes).toBeGreaterThan(0);
     expect(result.freeBytes).toBeGreaterThanOrEqual(0);
     expect(result.usedBytes).toBeGreaterThanOrEqual(0);
+    expect(result.availableBytes).toBeGreaterThanOrEqual(0);
     expect(result.usagePercent).toBeGreaterThanOrEqual(0);
     expect(result.usagePercent).toBeLessThanOrEqual(100);
-    expect(result.totalBytes).toBe(result.freeBytes + result.usedBytes);
+    expect(result.totalBytes).toBeGreaterThanOrEqual(result.usedBytes);
+    expect(result.totalBytes).toBeGreaterThanOrEqual(result.availableBytes);
   });
 
   it("returns disk usage for current root path", async () => {
@@ -92,8 +102,55 @@ describe("resource tools", () => {
     expect(result.filesystem.length).toBeGreaterThan(0);
     expect(result.mountPoint.length).toBeGreaterThan(0);
     expect(result.totalKb).toBeGreaterThan(0);
+    expect(result.accountingMode.length).toBeGreaterThan(0);
     expect(result.usagePercent).toBeGreaterThanOrEqual(0);
     expect(result.usagePercent).toBeLessThanOrEqual(100);
+  });
+
+  it("parses linux meminfo with available and swap fields", () => {
+    const parsed = parseLinuxMeminfo([
+      "MemTotal:       16384256 kB",
+      "MemFree:         1024000 kB",
+      "MemAvailable:    8192000 kB",
+      "Buffers:          256000 kB",
+      "Cached:          2048000 kB",
+      "SReclaimable:     128000 kB",
+      "SwapTotal:       4194304 kB",
+      "SwapFree:        3145728 kB",
+    ].join("\n"));
+
+    expect(parsed.memTotalKb).toBe(16384256);
+    expect(parsed.memAvailableKb).toBe(8192000);
+    expect(parsed.cachedKb).toBe(2432000);
+    expect(parsed.swapTotalKb).toBe(4194304);
+    expect(parsed.swapFreeKb).toBe(3145728);
+  });
+
+  it("parses mac vm_stat output", () => {
+    const parsed = parseMacVmStat([
+      "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+      "Pages free:                                4146.",
+      "Pages inactive:                          231180.",
+      "Pages speculative:                          734.",
+      "Pages purgeable:                           3339.",
+      "File-backed pages:                       156329.",
+    ].join("\n"));
+
+    expect(parsed.pageSizeBytes).toBe(16384);
+    expect(parsed.freePages).toBe(4146);
+    expect(parsed.inactivePages).toBe(231180);
+    expect(parsed.speculativePages).toBe(734);
+    expect(parsed.purgeablePages).toBe(3339);
+    expect(parsed.fileBackedPages).toBe(156329);
+  });
+
+  it("explains shared space semantics for apfs-like accounting gaps", () => {
+    const totalKb = 482797652;
+    const usedKb = 17316956;
+    const availableKb = 166335088;
+    const reservedOrSharedKb = totalKb - usedKb - availableKb;
+
+    expect(reservedOrSharedKb).toBeGreaterThan(0);
   });
 });
 

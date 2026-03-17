@@ -44,6 +44,11 @@ export function normalizeOmbotConfigPaths(config: OmbotConfig, projectRoot: stri
       ...config.events,
       dir: resolvePath(projectRoot, config.events.dir),
     },
+    hostProfile: {
+      ...config.hostProfile,
+      jsonPath: resolvePath(projectRoot, config.hostProfile.jsonPath),
+      workspaceProfilePath: resolvePath(projectRoot, config.hostProfile.workspaceProfilePath),
+    },
     paths: {
       dataDir: resolvePath(projectRoot, config.paths.dataDir),
       workspaceDir: resolvePath(projectRoot, config.paths.workspaceDir),

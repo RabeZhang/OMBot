@@ -57,7 +57,10 @@ describe("FileSystemConfigLoader", () => {
     expect(path.isAbsolute(loaded.ombot.paths.dataDir)).toBe(true);
     expect(path.isAbsolute(loaded.ombot.agent.systemPromptTemplate)).toBe(true);
     expect(path.isAbsolute(loaded.ombot.events.dir)).toBe(true);
+    expect(path.isAbsolute(loaded.ombot.hostProfile.jsonPath)).toBe(true);
+    expect(path.isAbsolute(loaded.ombot.hostProfile.workspaceProfilePath)).toBe(true);
     expect(loaded.ombot.events.defaultTimezone).toBe("Asia/Shanghai");
+    expect(loaded.ombot.hostProfile.autoRefreshOnStart).toBe(true);
     expect(loaded.monitors.monitors.length).toBeGreaterThanOrEqual(2);
   });
 

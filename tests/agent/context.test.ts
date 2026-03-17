@@ -68,6 +68,11 @@ describe("buildPromptContext", () => {
         maxQueuedPerSession: 5,
         startupScan: true,
       },
+      hostProfile: {
+        autoRefreshOnStart: true,
+        jsonPath: path.join(root, "data/host/environment.json"),
+        workspaceProfilePath: path.join(root, "workspace/HOST_PROFILE.md"),
+      },
       paths: {
         dataDir: path.join(root, "data"),
         workspaceDir: path.join(root, "workspace"),

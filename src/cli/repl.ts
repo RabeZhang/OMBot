@@ -25,6 +25,8 @@ import {
   listEventFiles,
   readEventFile,
 } from "../events/files";
+import type { HostProfileManager } from "../host/files";
+import { renderHostSummary } from "../host/render";
 
 export interface CliReplOptions {
   gateway: Gateway;
@@ -32,6 +34,8 @@ export interface CliReplOptions {
   subscribeGatewayEvents?: (callback: (event: GatewayEvent) => void | Promise<void>) => () => void;
   eventsDir?: string;
   eventsEnabled?: boolean;
+  hostProfileManager?: HostProfileManager;
+  refreshPromptContext?: () => Promise<void>;
 }
 
 /**
@@ -60,6 +64,9 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
       { name: "help", description: "查看帮助" },
       { name: "sessions", description: "列出当前会话" },
       { name: "use <id|number>", description: "切换到指定会话 (/use 1 或 /use sess_xxx)" },
+      { name: "host", description: "查看当前宿主环境摘要" },
+      { name: "host refresh", description: "重新采集宿主环境并更新 HOST_PROFILE" },
+      { name: "host show", description: "查看当前 HOST_PROFILE 内容" },
       { name: "approval auto", description: "切换到自动放行模式" },
       { name: "approval default", description: "切换到默认审批模式" },
       { name: "session rm <id|number>", description: "删除指定会话并清理其 events" },
@@ -393,6 +400,40 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
       if (command.type === "clear") {
         activeSessionId = undefined;
         addTextMsg(systemMessage("已清除当前会话绑定。"));
+        return;
+      }
+
+      if (command.type === "host") {
+        if (!options.hostProfileManager) {
+          addTextMsg(systemMessage("当前未配置宿主环境快照能力。"));
+          return;
+        }
+
+        if (command.action === "refresh") {
+          const snapshot = await options.hostProfileManager.refresh();
+          await options.refreshPromptContext?.();
+          addTextMsg(systemMessage("宿主环境快照已刷新，HOST_PROFILE.md 和 environment.json 已更新。"));
+          addTextMsg(renderHostSummary(snapshot));
+          return;
+        }
+
+        if (command.action === "show") {
+          const markdown = await options.hostProfileManager.readProfileMarkdown();
+          if (!markdown) {
+            addTextMsg(systemMessage("当前还没有 HOST_PROFILE 内容，请先执行 /host refresh。"));
+            return;
+          }
+          addMarkdownMsg(markdown);
+          return;
+        }
+
+        const snapshot = await options.hostProfileManager.readSnapshot();
+        if (!snapshot) {
+          addTextMsg(systemMessage("当前还没有宿主环境快照，请先执行 /host refresh。"));
+          return;
+        }
+
+        addTextMsg(renderHostSummary(snapshot));
         return;
       }
 
