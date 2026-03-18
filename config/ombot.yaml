@@ -44,6 +44,19 @@ host_profile:
   json_path: "./data/host/environment.json"
   workspace_profile_path: "./workspace/HOST_PROFILE.md"
 
+code_execution:
+  enabled: true
+  timeout_sec: 20
+  network_enabled: false
+  workdir_root: "./data/code-sandbox"
+  python_bin: "python3"
+  ts_runner: "tsx"
+  cpu_time_sec: 10
+  max_memory_mb: 512
+  max_file_kb: 10240
+  max_processes: 32
+  max_open_files: 64
+
 paths:
   data_dir: "./data"
   workspace_dir: "./workspace"

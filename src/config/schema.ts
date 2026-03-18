@@ -80,6 +80,33 @@ export const ombotConfigSchema = z
         jsonPath: "./data/host/environment.json",
         workspaceProfilePath: "./workspace/HOST_PROFILE.md",
       }),
+    codeExecution: z
+      .object({
+        enabled: z.boolean().default(true),
+        timeoutSec: z.number().int().positive().default(20),
+        networkEnabled: z.boolean().default(false),
+        workdirRoot: z.string().min(1).default("./data/code-sandbox"),
+        pythonBin: z.string().min(1).default("python3"),
+        tsRunner: z.string().min(1).default("tsx"),
+        cpuTimeSec: z.number().int().positive().default(10),
+        maxMemoryMb: z.number().int().positive().default(512),
+        maxFileKb: z.number().int().positive().default(10240),
+        maxProcesses: z.number().int().positive().default(32),
+        maxOpenFiles: z.number().int().positive().default(64),
+      })
+      .default({
+        enabled: true,
+        timeoutSec: 20,
+        networkEnabled: false,
+        workdirRoot: "./data/code-sandbox",
+        pythonBin: "python3",
+        tsRunner: "tsx",
+        cpuTimeSec: 10,
+        maxMemoryMb: 512,
+        maxFileKb: 10240,
+        maxProcesses: 32,
+        maxOpenFiles: 64,
+      }),
     paths: z.object({
       dataDir: z.string().min(1),
       workspaceDir: z.string().min(1),

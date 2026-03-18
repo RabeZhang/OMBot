@@ -69,6 +69,7 @@ import { createEditTool } from "./local/edit";
 import { createWriteTool } from "./local/write";
 import { createGrepTool } from "./local/grep";
 import { createFindTool } from "./local/find";
+import { createCodeRunTool } from "./local/code-execution";
 import {
     createCreateEventTool,
     createDeleteEventTool,
@@ -76,6 +77,7 @@ import {
     createReadEventTool,
 } from "./local/events";
 import { wrapProtectedAgentTools, type SecureExecutionOptions } from "./secure-execution";
+import type { CodeExecutionGateway } from "../code-execution/gateway";
 
 interface ToolWithSchema {
     tool: OmbotToolDefinition;
@@ -110,6 +112,11 @@ export function createAllPiTools(options: {
     cwd: string;
     eventsDir: string;
     defaultTimezone: string;
+    codeExecution?: {
+        enabled: boolean;
+        gateway: CodeExecutionGateway;
+        timeoutSec: number;
+    };
     secureExecution?: SecureExecutionOptions;
 }): AgentTool[] {
     const tools = [
@@ -137,6 +144,15 @@ export function createAllPiTools(options: {
             defaultTimezone: options.defaultTimezone,
         }),
     ];
+
+    if (options.codeExecution?.enabled) {
+        tools.push(
+            createCodeRunTool({
+                gateway: options.codeExecution.gateway,
+                timeoutSec: options.codeExecution.timeoutSec,
+            }),
+        );
+    }
 
     return options.secureExecution
         ? wrapProtectedAgentTools(tools, options.secureExecution)

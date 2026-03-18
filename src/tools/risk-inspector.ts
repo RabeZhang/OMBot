@@ -31,6 +31,16 @@ export function inspectToolRisk(toolName: string, params: unknown): ToolRiskInsp
     };
   }
 
+  if (toolName === "code_run") {
+    const language = typeof (params as { language?: unknown })?.language === "string"
+      ? (params as { language: string }).language
+      : "code";
+    return {
+      requiresApproval: true,
+      reason: `code_run 会在受控执行环境中运行${language}代码`,
+    };
+  }
+
   return { requiresApproval: false };
 }
 

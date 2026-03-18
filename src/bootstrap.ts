@@ -18,6 +18,8 @@ import { SqliteAuditStore } from "./audit/sqlite-store";
 import { EventsWatcher } from "./events/watcher";
 import { HostEnvironmentCollector } from "./host/collector";
 import { HostProfileManager } from "./host/files";
+import { LocalSandboxBackend } from "./code-execution/backends/local-sandbox";
+import { CodeExecutionGateway } from "./code-execution/gateway";
 
 async function ensureRuntimeDirs(paths: {
   dataDir: string;
@@ -25,12 +27,14 @@ async function ensureRuntimeDirs(paths: {
   auditDbPath: string;
   hostProfileJsonPath: string;
   hostWorkspaceProfilePath: string;
+  codeExecutionWorkdirRoot: string;
 }) {
   await fs.mkdir(paths.dataDir, { recursive: true });
   await fs.mkdir(paths.transcriptsDir, { recursive: true });
   await fs.mkdir(path.dirname(paths.auditDbPath), { recursive: true });
   await fs.mkdir(path.dirname(paths.hostProfileJsonPath), { recursive: true });
   await fs.mkdir(path.dirname(paths.hostWorkspaceProfilePath), { recursive: true });
+  await fs.mkdir(paths.codeExecutionWorkdirRoot, { recursive: true });
 }
 
 export async function bootstrap(projectRoot: string) {
@@ -43,6 +47,7 @@ export async function bootstrap(projectRoot: string) {
     ...config.ombot.paths,
     hostProfileJsonPath: config.ombot.hostProfile.jsonPath,
     hostWorkspaceProfilePath: config.ombot.hostProfile.workspaceProfilePath,
+    codeExecutionWorkdirRoot: config.ombot.codeExecution.workdirRoot,
   });
 
   const hostProfileManager = new HostProfileManager({
@@ -68,11 +73,30 @@ export async function bootstrap(projectRoot: string) {
   });
   await approvalCenter.init?.();
   const toolApprovalMode = new InMemoryToolApprovalModeController("default");
+  const codeExecutionGateway = new CodeExecutionGateway({
+    backend: new LocalSandboxBackend({
+      workdirRoot: config.ombot.codeExecution.workdirRoot,
+      pythonBin: config.ombot.codeExecution.pythonBin,
+      tsRunner: config.ombot.codeExecution.tsRunner,
+      timeoutSec: config.ombot.codeExecution.timeoutSec,
+      networkEnabled: config.ombot.codeExecution.networkEnabled,
+      cpuTimeSec: config.ombot.codeExecution.cpuTimeSec,
+      maxMemoryMb: config.ombot.codeExecution.maxMemoryMb,
+      maxFileKb: config.ombot.codeExecution.maxFileKb,
+      maxProcesses: config.ombot.codeExecution.maxProcesses,
+      maxOpenFiles: config.ombot.codeExecution.maxOpenFiles,
+    }),
+  });
   const piModel = createPiModel(config.llm);
   const piTools = createAllPiTools({
     cwd: projectRoot,
     eventsDir: config.ombot.events.dir,
     defaultTimezone: config.ombot.events.defaultTimezone,
+    codeExecution: {
+      enabled: config.ombot.codeExecution.enabled,
+      gateway: codeExecutionGateway,
+      timeoutSec: config.ombot.codeExecution.timeoutSec,
+    },
     secureExecution: {
       approvalCenter,
       approvalTimeoutSec: config.ombot.gateway.approvalTimeoutSec,
@@ -127,6 +151,7 @@ export async function bootstrap(projectRoot: string) {
   return {
     config,
     hostProfileManager,
+    codeExecutionGateway,
     piModel,
     agentRuntime,
     promptContext,

@@ -78,6 +78,26 @@ describe("createAllPiTools", () => {
             cwd: process.cwd(),
             eventsDir: `${process.cwd()}/workspace/events`,
             defaultTimezone: "Asia/Shanghai",
+            codeExecution: {
+                enabled: true,
+                timeoutSec: 20,
+                gateway: {
+                    async execute() {
+                        return {
+                            ok: true,
+                            language: "python",
+                            backend: "local_sandbox",
+                            isolationLevel: "lightweight",
+                            summary: "Python 执行成功，退出码 0，生成 0 个产物",
+                            exitCode: 0,
+                            stdout: "ok",
+                            stderr: "",
+                            timedOut: false,
+                            artifacts: [],
+                        };
+                    },
+                } as any,
+            },
             secureExecution: {
                 approvalCenter: {
                     request: async () => {},
@@ -100,6 +120,7 @@ describe("createAllPiTools", () => {
         expect(names).toContain("list_events");
         expect(names).toContain("read_event");
         expect(names).toContain("delete_event");
+        expect(names).toContain("code_run");
     });
 });
 

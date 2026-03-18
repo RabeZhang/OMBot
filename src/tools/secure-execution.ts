@@ -84,5 +84,8 @@ export function wrapProtectedAgentTools(
 }
 
 function isProtectedTool(toolName: string): boolean {
-  return toolName === "bash" || toolName === "edit" || toolName === "write";
+  return toolName === "bash"
+    || toolName === "edit"
+    || toolName === "write"
+    || toolName === "code_run";
 }

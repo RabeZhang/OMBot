@@ -143,4 +143,41 @@ describe("wrapProtectedAgentTools", () => {
     });
     expect(received).toEqual([]);
   });
+
+  it("requires approval for code_run", async () => {
+    const eventBus = new InMemoryEventBus();
+    const approvalCenter = new InMemoryApprovalCenter({ eventBus });
+    const wrapped = wrapProtectedAgentTools(
+      [createTestTool("code_run")],
+      {
+        approvalCenter,
+        approvalTimeoutSec: 2,
+        getApprovalMode: () => "default",
+      },
+    );
+
+    const approvalRefPromise = new Promise<string>((resolve) => {
+      const unsubscribe = eventBus.subscribe(async (event) => {
+        if (event.type === "approval.required") {
+          unsubscribe();
+          resolve(event.approvalRef);
+        }
+      });
+    });
+
+    const execution = runWithToolRuntimeContext({ sessionId: "sess_1" }, () =>
+      wrapped[0]!.execute("tool_call_1", { language: "python", code: "print('hello')" }),
+    );
+
+    const approvalRef = await approvalRefPromise;
+    await approvalCenter.resolve({
+      approvalRef,
+      action: "approve_once",
+      resolvedBy: "tester",
+    });
+
+    await expect(execution).resolves.toMatchObject({
+      content: [{ type: "text", text: "code_run-ok" }],
+    });
+  });
 });
