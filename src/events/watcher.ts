@@ -268,12 +268,12 @@ export class EventsWatcher {
       sourceFile: parsed.sourceFile,
       type: event.type,
       text: event.text,
-      sessionId: event.sessionId,
       title: event.title,
       profile: event.profile ?? "readonly",
       scheduledAt,
       triggeredAt,
       timezone: event.type === "periodic" ? event.timezone : undefined,
+      context: event.context,
       metadata: event.metadata,
     });
 

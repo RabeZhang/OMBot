@@ -4,12 +4,12 @@
  */
 
 export interface CliCommand {
-  type: "help" | "sessions" | "use" | "clear" | "exit" | "events" | "event" | "session" | "approval" | "approval_mode" | "host" | "message";
+  type: "help" | "sessions" | "use" | "clear" | "exit" | "events" | "event" | "session" | "approval" | "approval_mode" | "host" | "monitor" | "message";
   sessionId?: string;
   sessionIndex?: number; // 用于 /use 1, /use 2 这样的编号切换
   content?: string;
   limit?: number | "all";
-  action?: "list" | "show" | "rm" | "approve_once" | "deny" | "auto" | "default" | "refresh";
+  action?: "list" | "show" | "runs" | "rm" | "approve_once" | "deny" | "auto" | "default" | "refresh" | "new";
   filename?: string;
 }
 
@@ -85,6 +85,10 @@ export function parseCliCommand(line: string): CliCommand {
     return { type: "events", action: "list" };
   }
 
+  if (trimmed === "/events runs") {
+    return { type: "events", action: "runs" };
+  }
+
   if (trimmed.startsWith("/events show ")) {
     const filename = trimmed.slice("/events show ".length).trim();
     return { type: "events", action: "show", filename };
@@ -98,12 +102,23 @@ export function parseCliCommand(line: string): CliCommand {
     };
   }
 
+  if (trimmed === "/monitor") {
+    return { type: "monitor", action: "list" };
+  }
+
+  if (trimmed === "/monitor show") {
+    return { type: "monitor", action: "show" };
+  }
+
   if (trimmed === "/exit" || trimmed === "/quit") {
     return { type: "exit" };
   }
 
   if (trimmed.startsWith("/use ")) {
     const arg = trimmed.slice(5).trim();
+    if (arg === "new") {
+      return { type: "use", action: "new" };
+    }
     // 支持 /use 1, /use 2 这样的编号，也支持 /use sess_xxx 这样的 sessionId
     const num = parseInt(arg, 10);
     if (!isNaN(num) && num > 0 && String(num) === arg) {

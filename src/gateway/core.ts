@@ -5,8 +5,8 @@ import type { SessionRecord, SessionStore, TranscriptStore } from "../memory/typ
 import type { TranscriptEntry } from "../memory/types";
 import type { AuditStore } from "../audit/types";
 import type { LlmClient } from "../llm/types";
-import { deleteEventFilesBySessionId } from "../events/files";
 import type { ToolApprovalModeController } from "../tools/approval-mode";
+import { GLOBAL_EVENTS_SESSION_TITLE, GLOBAL_MONITOR_SESSION_TITLE } from "./global-sessions";
 import type {
   ApprovalCenter,
   ApprovalResolutionInput,
@@ -246,52 +246,92 @@ export class GatewayCore implements Gateway {
   }
 
   async dispatchMonitorEvent(input: MonitorEventInput): Promise<GatewayRunHandle> {
-    // Phase 1：monitor 事件只做记录和事件发布，不触发 LLM Agent 调用。
-    // Agent 调用由用户主动发起，避免后台并发 LLM 请求阻塞用户的交互。
-    const sessionId = createId("sess"); // 轻量 incident session，不写磁盘
+    const session = await this.getOrCreateGlobalSystemSession(GLOBAL_MONITOR_SESSION_TITLE);
     const runId = createId("run");
     const queue = new AsyncEventQueue();
+    const unsubscribe = this.eventBus.subscribe(async (event) => {
+      if ("runId" in event && event.runId !== runId) {
+        return;
+      }
 
-    // 立即关闭队列（不触发 Agent 运行）
-    queue.push({
+      if (event.sessionId !== session.sessionId) {
+        return;
+      }
+
+      queue.push(event);
+
+      if (event.type === "gateway.run.completed") {
+        unsubscribe();
+        queue.close();
+      }
+    });
+
+    await this.transcriptStore.append({
+      id: createId("entry"),
+      sessionId: session.sessionId,
+      kind: "monitor_event",
+      createdAt: input.observedAt ?? nowIsoString(),
+      payload: {
+        ruleId: input.ruleId,
+        severity: input.severity,
+        eventType: input.type,
+        summary: input.summary,
+        observedAt: input.observedAt,
+        details: input.details,
+      },
+    });
+
+    await this.eventBus.publish({
       type: "gateway.run.started",
-      sessionId,
+      sessionId: session.sessionId,
       runId,
     });
 
-    queue.push({
+    await this.eventBus.publish({
       type: input.type,
-      sessionId,
+      sessionId: session.sessionId,
       runId,
       summary: input.summary,
     });
 
-    queue.push({
-      type: "gateway.run.completed",
-      sessionId,
-      runId,
+    setImmediate(async () => {
+      try {
+        await this.runAgent(session.sessionId, runId, {
+          kind: "monitor_event",
+          event: {
+            ruleId: input.ruleId,
+            severity: input.severity,
+            type: input.type,
+            summary: input.summary,
+            observedAt: input.observedAt,
+            details: input.details,
+          },
+        });
+      } catch (err) {
+        await this.eventBus.publish({
+          type: "gateway.run.error",
+          sessionId: session.sessionId,
+          runId,
+          error: err instanceof Error ? err.message : String(err),
+        } as any);
+      } finally {
+        await this.eventBus.publish({
+          type: "gateway.run.completed",
+          sessionId: session.sessionId,
+          runId,
+        });
+      }
     });
 
-    queue.close();
-
     return {
-      sessionId,
+      sessionId: session.sessionId,
       runId,
       stream: queue.iterate(),
     };
   }
 
   async dispatchScheduledEvent(input: ScheduledEventInput): Promise<GatewayRunHandle> {
-    let session: SessionRecord;
-    if (input.sessionId) {
-      session = await this.getRequiredSession(input.sessionId);
-    } else {
-      session = await this.sessionStore.create({
-        type: "system",
-        title: input.title,
-        channel: "internal",
-      });
-    }
+    const session = await this.getOrCreateGlobalSystemSession(GLOBAL_EVENTS_SESSION_TITLE);
 
     const runId = createId("run");
     const queue = new AsyncEventQueue();
@@ -322,6 +362,7 @@ export class GatewayCore implements Gateway {
         sourceFile: input.sourceFile,
         eventType: input.type,
         text: input.text,
+        context: input.context,
         profile: input.profile,
         scheduledAt: input.scheduledAt,
         triggeredAt: input.triggeredAt,
@@ -350,14 +391,15 @@ export class GatewayCore implements Gateway {
         await this.runAgent(session.sessionId, runId, {
           kind: "scheduled_event",
           event: {
-            eventId: input.eventId,
-            sourceFile: input.sourceFile,
-            type: input.type,
-            text: input.text,
-            title: input.title,
-            profile: input.profile,
-            scheduledAt: input.scheduledAt,
-            triggeredAt: input.triggeredAt,
+          eventId: input.eventId,
+          sourceFile: input.sourceFile,
+          type: input.type,
+          text: input.text,
+          title: input.title,
+          context: input.context,
+          profile: input.profile,
+          scheduledAt: input.scheduledAt,
+          triggeredAt: input.triggeredAt,
             timezone: input.timezone,
             metadata: input.metadata,
           },
@@ -461,9 +503,6 @@ export class GatewayCore implements Gateway {
 
   async deleteSession(sessionId: string): Promise<void> {
     await this.getRequiredSession(sessionId);
-    if (this.eventsDir) {
-      await deleteEventFilesBySessionId(this.eventsDir, sessionId);
-    }
     await this.transcriptStore.deleteBySession(sessionId);
     await this.sessionStore.delete(sessionId);
   }
@@ -474,6 +513,22 @@ export class GatewayCore implements Gateway {
       throw new Error(`Session not found: ${sessionId}`);
     }
     return session;
+  }
+
+  private async getOrCreateGlobalSystemSession(title: string): Promise<SessionRecord> {
+    const sessions = await this.sessionStore.list();
+    for (const summary of sessions) {
+      const session = await this.sessionStore.get(summary.sessionId);
+      if (session?.type === "system" && session.title === title) {
+        return session;
+      }
+    }
+
+    return this.sessionStore.create({
+      type: "system",
+      title,
+      channel: "internal",
+    });
   }
 
   async updateSessionTitle(sessionId: string, title: string): Promise<void> {
@@ -530,7 +585,7 @@ export class GatewayCore implements Gateway {
     let assistantSummary: string | undefined;
     const sessionHistory = input.kind === "user_message"
       ? await this.buildSessionHistory(sessionId, { excludeTrailingUserContent: input.content })
-      : input.kind === "scheduled_event"
+      : input.kind === "monitor_event"
         ? await this.buildSessionHistory(sessionId)
         : undefined;
 

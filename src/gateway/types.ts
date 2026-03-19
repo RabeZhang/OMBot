@@ -22,8 +22,8 @@ export interface ScheduledEventInput {
   sourceFile: string;
   type: "one-shot" | "periodic" | "immediate";
   text: string;
-  sessionId?: string;
   title?: string;
+  context?: string;
   profile: string;
   scheduledAt?: string;
   triggeredAt: string;

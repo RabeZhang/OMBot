@@ -70,7 +70,7 @@ export async function createImmediateEventFile(
   input: {
     text: string;
     title?: string;
-    sessionId?: string;
+    context?: string;
     profile?: string;
     metadata?: Record<string, unknown>;
   },
@@ -81,7 +81,7 @@ export async function createImmediateEventFile(
     type: "immediate",
     text: input.text,
     ...(input.title ? { title: input.title } : {}),
-    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+    ...(input.context ? { context: input.context } : {}),
     ...(input.profile ? { profile: input.profile } : {}),
     ...(input.metadata ? { metadata: input.metadata } : {}),
   };
@@ -96,7 +96,7 @@ export async function createOneShotEventFile(
     text: string;
     at: string;
     title?: string;
-    sessionId?: string;
+    context?: string;
     profile?: string;
     metadata?: Record<string, unknown>;
   },
@@ -108,7 +108,7 @@ export async function createOneShotEventFile(
     text: input.text,
     at: input.at,
     ...(input.title ? { title: input.title } : {}),
-    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+    ...(input.context ? { context: input.context } : {}),
     ...(input.profile ? { profile: input.profile } : {}),
     ...(input.metadata ? { metadata: input.metadata } : {}),
   };
@@ -124,7 +124,7 @@ export async function createPeriodicEventFile(
     schedule: string;
     timezone: string;
     title?: string;
-    sessionId?: string;
+    context?: string;
     profile?: string;
     metadata?: Record<string, unknown>;
   },
@@ -137,7 +137,7 @@ export async function createPeriodicEventFile(
     schedule: input.schedule,
     timezone: input.timezone,
     ...(input.title ? { title: input.title } : {}),
-    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+    ...(input.context ? { context: input.context } : {}),
     ...(input.profile ? { profile: input.profile } : {}),
     ...(input.metadata ? { metadata: input.metadata } : {}),
   };

@@ -188,10 +188,12 @@ export class PiAgentRuntimeAdapter implements AgentRuntimeAdapter {
         if (input.input.kind === "monitor_event") {
             const event = input.input.event;
             return [
+                ...(input.promptContext.sessionHistory ? [input.promptContext.sessionHistory, ""] : []),
                 "请基于以下监控事件给出简洁分析：",
                 `规则 ID: ${event.ruleId}`,
                 `事件类型: ${event.type}`,
                 `严重级别: ${event.severity}`,
+                ...(event.observedAt ? [`观测时间: ${event.observedAt}`] : []),
                 `摘要: ${event.summary}`,
                 `详情: ${JSON.stringify(event.details ?? {})}`,
             ].join("\n");
@@ -199,7 +201,6 @@ export class PiAgentRuntimeAdapter implements AgentRuntimeAdapter {
 
         const event = input.input.event;
         return [
-            ...(input.promptContext.sessionHistory ? [input.promptContext.sessionHistory, ""] : []),
             "请处理以下定时/调度事件：",
             `事件 ID: ${event.eventId}`,
             `来源文件: ${event.sourceFile}`,
@@ -209,6 +210,7 @@ export class PiAgentRuntimeAdapter implements AgentRuntimeAdapter {
             ...(event.scheduledAt ? [`计划时间/计划表达式: ${event.scheduledAt}`] : []),
             ...(event.timezone ? [`时区: ${event.timezone}`] : []),
             `任务内容: ${event.text}`,
+            ...(event.context ? [`执行上下文: ${event.context}`] : []),
             `附加元数据: ${JSON.stringify(event.metadata ?? {})}`,
         ].join("\n");
     }

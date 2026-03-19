@@ -10,7 +10,6 @@ import {
   readEventFile,
 } from "../../events/files";
 import { parseEventFile } from "../../events/parser";
-import { getCurrentToolSessionId } from "../runtime-context";
 
 interface EventToolsOptions {
   eventsDir: string;
@@ -42,7 +41,7 @@ export function createCreateEventTool(options: EventToolsOptions): AgentTool {
       schedule: Type.Optional(Type.String({ description: "periodic 必填，标准 cron 表达式" })),
       timezone: Type.Optional(Type.String({ description: "periodic 可选，IANA 时区名" })),
       title: Type.Optional(Type.String()),
-      sessionId: Type.Optional(Type.String()),
+      context: Type.Optional(Type.String({ description: "为该事件补充执行所需背景信息，应写入事件文件而非依赖当前对话" })),
       profile: Type.Optional(Type.String()),
     }),
     async execute(_toolCallId: string, params: unknown): Promise<AgentToolResult<unknown>> {
@@ -53,17 +52,16 @@ export function createCreateEventTool(options: EventToolsOptions): AgentTool {
         schedule?: string;
         timezone?: string;
         title?: string;
-        sessionId?: string;
+        context?: string;
         profile?: string;
       };
 
       let filename: string;
-      const boundSessionId = input.sessionId ?? getCurrentToolSessionId();
       if (input.type === "immediate") {
         filename = await createImmediateEventFile(options.eventsDir, {
           text: input.text,
           title: input.title,
-          sessionId: boundSessionId,
+          context: input.context,
           profile: input.profile ?? "readonly",
           metadata: { source: "agent" },
         });
@@ -78,7 +76,7 @@ export function createCreateEventTool(options: EventToolsOptions): AgentTool {
             text: input.text,
             at: input.at,
             title: input.title,
-            sessionId: boundSessionId,
+            context: input.context,
             profile: input.profile ?? "readonly",
           }),
           { defaultTimezone: options.defaultTimezone },
@@ -87,7 +85,7 @@ export function createCreateEventTool(options: EventToolsOptions): AgentTool {
           text: input.text,
           at: input.at,
           title: input.title,
-          sessionId: boundSessionId,
+          context: input.context,
           profile: input.profile ?? "readonly",
           metadata: { source: "agent" },
         });
@@ -103,7 +101,7 @@ export function createCreateEventTool(options: EventToolsOptions): AgentTool {
             schedule: input.schedule,
             timezone: input.timezone ?? options.defaultTimezone,
             title: input.title,
-            sessionId: boundSessionId,
+            context: input.context,
             profile: input.profile ?? "readonly",
           }),
           { defaultTimezone: options.defaultTimezone },
@@ -113,7 +111,7 @@ export function createCreateEventTool(options: EventToolsOptions): AgentTool {
           schedule: input.schedule,
           timezone: input.timezone ?? options.defaultTimezone,
           title: input.title,
-          sessionId: boundSessionId,
+          context: input.context,
           profile: input.profile ?? "readonly",
           metadata: { source: "agent" },
         });
@@ -124,7 +122,6 @@ export function createCreateEventTool(options: EventToolsOptions): AgentTool {
         filename,
         type: input.type,
         eventsDir: options.eventsDir,
-        sessionId: boundSessionId,
       });
     },
   };

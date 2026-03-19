@@ -13,9 +13,9 @@ export type MonitorMessageCallback = (message: string, type: MonitorMessageType)
  * 检测到异常时通过 Gateway.dispatchMonitorEvent() 投递事件给 Agent。
  *
  * 核心状态机（每条规则独立）：
- * - 正常 → 检查失败 → 发 monitor.alert，进入 cooldown
- * - cooldown 内再次失败 → 跳过（不重复告警）
- * - 从失败恢复 → 发 monitor.recovered
+ * - 连续失败达到 failureThreshold → 发 monitor.alert，进入 incident
+ * - incident 内再次失败且仍在 cooldown 内 → 跳过（不重复告警）
+ * - 连续成功达到 recoveryThreshold → 发 monitor.recovered，关闭 incident
  * - 持续正常 → 静默
  */
 export class MonitorEngine {
@@ -90,8 +90,11 @@ export class MonitorEngine {
 
         if (result.ok) {
             // ===== 检查通过 =====
-            if (state.lastOk === false) {
-                // 从失败恢复 → 发 monitor.recovered
+            state.lastOk = true;
+            state.consecutiveSuccesses += 1;
+            state.consecutiveFailures = 0;
+
+            if (state.incidentActive && state.consecutiveSuccesses >= rule.recoveryThreshold) {
                 this.emit(`规则 "${rule.name}" 已恢复: ${result.summary}`, "recovered");
                 await this.gateway.dispatchMonitorEvent({
                     ruleId: rule.id,
@@ -99,19 +102,27 @@ export class MonitorEngine {
                     type: "monitor.recovered",
                     summary: `[恢复] ${result.summary}`,
                     observedAt: now,
-                    details: result.details,
+                    details: {
+                        ...result.details,
+                        consecutiveSuccesses: state.consecutiveSuccesses,
+                        recoveryThreshold: rule.recoveryThreshold,
+                    },
                 });
+                state.incidentActive = false;
+                state.cooldownUntil = null;
             }
-
-            state.lastOk = true;
-            state.consecutiveFailures = 0;
-            state.cooldownUntil = null;
         } else {
             // ===== 检查失败 =====
             state.consecutiveFailures++;
+            state.consecutiveSuccesses = 0;
+            state.lastOk = false;
+
+            if (!state.incidentActive && state.consecutiveFailures < rule.failureThreshold) {
+                return;
+            }
 
             // 检查 cooldown
-            if (state.cooldownUntil && now < state.cooldownUntil) {
+            if (state.incidentActive && state.cooldownUntil && now < state.cooldownUntil) {
                 // 仍在 cooldown 内，静默跳过
                 return;
             }
@@ -128,10 +139,11 @@ export class MonitorEngine {
                 details: {
                     ...result.details,
                     consecutiveFailures: state.consecutiveFailures,
+                    failureThreshold: rule.failureThreshold,
                 },
             });
 
-            state.lastOk = false;
+            state.incidentActive = true;
 
             // 设置 cooldown
             if (rule.cooldown) {

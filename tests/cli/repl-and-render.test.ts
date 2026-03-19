@@ -42,6 +42,10 @@ describe("parseCliCommand", () => {
       sessionId: "sess_123",
     });
     expect(parseCliCommand("/events")).toEqual({ type: "events", action: "list" });
+    expect(parseCliCommand("/events runs")).toEqual({
+      type: "events",
+      action: "runs",
+    });
     expect(parseCliCommand("/events show test.json")).toEqual({
       type: "events",
       action: "show",
@@ -52,11 +56,23 @@ describe("parseCliCommand", () => {
       action: "rm",
       filename: "test.json",
     });
+    expect(parseCliCommand("/monitor")).toEqual({
+      type: "monitor",
+      action: "list",
+    });
+    expect(parseCliCommand("/monitor show")).toEqual({
+      type: "monitor",
+      action: "show",
+    });
     expect(parseCliCommand("/exit")).toEqual({ type: "exit" });
     expect(parseCliCommand("/quit")).toEqual({ type: "exit" });
     expect(parseCliCommand("/use sess_123")).toEqual({
       type: "use",
       sessionId: "sess_123",
+    });
+    expect(parseCliCommand("/use new")).toEqual({
+      type: "use",
+      action: "new",
     });
     // 支持用编号切换 /use 1, /use 2
     expect(parseCliCommand("/use 1")).toEqual({
@@ -135,6 +151,7 @@ describe("render helpers", () => {
     expect(renderSessionSummaries([])).toBe("当前还没有会话。");
     expect(renderHelp()).toContain("/sessions");
     expect(renderHelp()).toContain("/use");
+    expect(renderHelp()).toContain("/use new");
     expect(renderHelp()).toContain("/host");
     expect(renderHelp()).toContain("/host refresh");
     expect(renderHelp()).toContain("/host show");
@@ -144,6 +161,9 @@ describe("render helpers", () => {
     expect(renderHelp()).toContain("/deny");
     expect(renderHelp()).toContain("/session rm");
     expect(renderHelp()).toContain("/events");
+    expect(renderHelp()).toContain("/events runs");
     expect(renderHelp()).toContain("/event rm");
+    expect(renderHelp()).toContain("/monitor");
+    expect(renderHelp()).toContain("/monitor show");
   });
 });

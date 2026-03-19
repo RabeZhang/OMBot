@@ -220,7 +220,7 @@ describe("GatewayCore", () => {
     expect(snapshot?.transcript[2]?.kind).toBe("summary");
   });
 
-  it("creates incident session for monitor event and appends monitor transcript", async () => {
+  it("routes monitor event into global monitor session, appends transcript, and runs agent", async () => {
     const root = await createTempDir();
     const eventBus = new InMemoryEventBus();
     const approvalCenter = new InMemoryApprovalCenter({ eventBus });
@@ -246,15 +246,70 @@ describe("GatewayCore", () => {
     });
 
     const events = await collectEvents(run.stream);
+    const snapshot = await gateway.getSession(run.sessionId);
 
-    // 新的轻量实现：monitor 事件不触发 Agent LLM 调用，只发 3 个事件
-    expect(events).toHaveLength(3);
+    expect(events).toHaveLength(7);
     expect(events[0]).toMatchObject({ type: "gateway.run.started" });
     expect(events[1]).toMatchObject({ type: "monitor.alert", summary: "nginx 进程异常" });
-    expect(events[2]).toMatchObject({ type: "gateway.run.completed" });
+    expect(events[2]).toMatchObject({ type: "agent.start" });
+    expect(events[3]).toMatchObject({ type: "agent.message_update" });
+    expect(events[6]).toMatchObject({ type: "gateway.run.completed" });
+    expect(snapshot?.session.type).toBe("system");
+    expect(snapshot?.session.title).toBe("[monitor] global");
+    expect(snapshot?.transcript[0]?.kind).toBe("monitor_event");
+    expect(snapshot?.transcript[1]?.payload).toMatchObject({
+      role: "assistant",
+      content: "已分析监控事件：nginx 进程异常",
+    });
+    expect(snapshot?.transcript[2]?.kind).toBe("summary");
   });
 
-  it("creates system session for scheduled event and appends scheduled transcript", async () => {
+  it("reuses the same global monitor session for repeated monitor events", async () => {
+    const root = await createTempDir();
+    const eventBus = new InMemoryEventBus();
+    const approvalCenter = new InMemoryApprovalCenter({ eventBus });
+    const gateway = new GatewayCore({
+      eventBus,
+      approvalCenter,
+      agentRuntime: new FakeAgentRuntimeAdapter(),
+      toolApprovalMode: new InMemoryToolApprovalModeController("default"),
+      sessionStore: new FileSessionStore({
+        indexFilePath: path.join(root, "data/sessions/index.json"),
+        hostId: "local-test",
+      }),
+      transcriptStore: new FileTranscriptStore({
+        transcriptsDir: path.join(root, "data/transcripts"),
+      }),
+    });
+
+    const firstRun = await gateway.dispatchMonitorEvent({
+      ruleId: "cpu-usage",
+      severity: "warning",
+      type: "monitor.alert",
+      summary: "CPU 使用率过高",
+    });
+    await collectEvents(firstRun.stream);
+
+    const secondRun = await gateway.dispatchMonitorEvent({
+      ruleId: "cpu-usage",
+      severity: "info",
+      type: "monitor.recovered",
+      summary: "CPU 使用率恢复正常",
+    });
+    await collectEvents(secondRun.stream);
+
+    const snapshot = await gateway.getSession(firstRun.sessionId);
+
+    expect(secondRun.sessionId).toBe(firstRun.sessionId);
+    expect(snapshot?.session.title).toBe("[monitor] global");
+    expect(snapshot?.transcript.filter((entry) => entry.kind === "monitor_event")).toHaveLength(2);
+    expect(snapshot?.transcript[3]?.payload).toMatchObject({
+      summary: "CPU 使用率恢复正常",
+      eventType: "monitor.recovered",
+    });
+  });
+
+  it("routes scheduled event into global events session and appends scheduled transcript", async () => {
     const root = await createTempDir();
     const eventBus = new InMemoryEventBus();
     const approvalCenter = new InMemoryApprovalCenter({ eventBus });
@@ -277,6 +332,7 @@ describe("GatewayCore", () => {
       sourceFile: "daily-check.json",
       type: "periodic",
       text: "每天巡检一次 nginx 状态",
+      context: "检查 nginx 进程、HTTP 健康检查和端口监听状态。",
       profile: "readonly",
       scheduledAt: "0 9 * * *",
       triggeredAt: new Date().toISOString(),
@@ -293,14 +349,18 @@ describe("GatewayCore", () => {
     expect(events[3]).toMatchObject({ type: "agent.message_update" });
     expect(events[6]).toMatchObject({ type: "gateway.run.completed" });
     expect(snapshot?.session.type).toBe("system");
+    expect(snapshot?.session.title).toBe("[events] global");
     expect(snapshot?.transcript[0]?.kind).toBe("scheduled_event");
+    expect(snapshot?.transcript[0]?.payload).toMatchObject({
+      context: "检查 nginx 进程、HTTP 健康检查和端口监听状态。",
+    });
     expect(snapshot?.transcript[1]?.payload).toMatchObject({
       role: "assistant",
       content: "已处理定时事件：每天巡检一次 nginx 状态",
     });
   });
 
-  it("deletes session, transcript, and bound event files together", async () => {
+  it("deletes session transcript without deleting global event files", async () => {
     const root = await createTempDir();
     const eventsDir = path.join(root, "workspace/events");
     await fs.mkdir(eventsDir, { recursive: true });
@@ -334,7 +394,7 @@ describe("GatewayCore", () => {
         type: "one-shot",
         text: "绑定到 session",
         at: "2026-03-14T09:00:00+08:00",
-        sessionId: run.sessionId,
+        context: "删除 session 后仍应保留的全局事件",
       }),
       "utf8",
     );
@@ -343,7 +403,7 @@ describe("GatewayCore", () => {
 
     expect(await gateway.getSession(run.sessionId)).toBeNull();
     await expect(fs.stat(path.join(root, "data/transcripts", `${run.sessionId}.jsonl`))).rejects.toThrow();
-    await expect(fs.stat(path.join(eventsDir, "bound.json"))).rejects.toThrow();
+    await expect(fs.stat(path.join(eventsDir, "bound.json"))).resolves.toBeDefined();
   });
 
   it("appends approval lifecycle records to transcript", async () => {

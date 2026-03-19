@@ -25,7 +25,7 @@ afterEach(async () => {
 });
 
 describe("create_event tool", () => {
-  it("binds created event to current runtime session by default", async () => {
+  it("creates global event file without implicit session binding", async () => {
     const root = await createTempDir();
     const eventsDir = path.join(root, "events");
     const tool = createCreateEventTool({
@@ -44,7 +44,30 @@ describe("create_event tool", () => {
     const files = await fs.readdir(eventsDir);
     expect(files).toHaveLength(1);
     const content = await fs.readFile(path.join(eventsDir, files[0]!), "utf8");
-    const parsed = JSON.parse(content) as { sessionId?: string };
-    expect(parsed.sessionId).toBe("sess_bound");
+    const parsed = JSON.parse(content) as { sessionId?: string; context?: string };
+    expect(parsed.sessionId).toBeUndefined();
+    expect(parsed.context).toBeUndefined();
+  });
+
+  it("stores explicit execution context in event file", async () => {
+    const root = await createTempDir();
+    const eventsDir = path.join(root, "events");
+    const tool = createCreateEventTool({
+      eventsDir,
+      defaultTimezone: "Asia/Shanghai",
+    });
+
+    await tool.execute("call_1", {
+      type: "periodic",
+      text: "每天检查服务状态",
+      schedule: "0 8 * * *",
+      timezone: "Asia/Shanghai",
+      context: "检查 nginx、redis 和 api 服务的健康状态，并汇总结果。",
+    });
+
+    const files = await fs.readdir(eventsDir);
+    const content = await fs.readFile(path.join(eventsDir, files[0]!), "utf8");
+    const parsed = JSON.parse(content) as { context?: string };
+    expect(parsed.context).toContain("nginx");
   });
 });

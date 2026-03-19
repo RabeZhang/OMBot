@@ -26,6 +26,7 @@ export type AgentRuntimeInput =
         type: "one-shot" | "periodic" | "immediate";
         text: string;
         title?: string;
+        context?: string;
         profile: string;
         scheduledAt?: string;
         triggeredAt: string;

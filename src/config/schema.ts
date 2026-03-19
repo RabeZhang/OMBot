@@ -125,6 +125,8 @@ export const monitorRuleSchema = z
     interval: z.string().regex(durationRegex, "interval 必须是有效的持续时间，例如 60s、5m"),
     target: z.record(z.string(), z.unknown()),
     threshold: thresholdSchema.optional(),
+    failureThreshold: z.number().int().positive().default(2),
+    recoveryThreshold: z.number().int().positive().default(2),
     cooldown: z.string().regex(durationRegex, "cooldown 必须是有效的持续时间").optional(),
     onFailure: onFailureSchema.optional(),
   })

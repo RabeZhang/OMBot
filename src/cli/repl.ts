@@ -11,6 +11,7 @@ import {
 
 import type { Gateway } from "../gateway/types";
 import type { GatewayEvent } from "../gateway/types";
+import type { SessionSnapshot } from "../memory/types";
 import {
   editorTheme,
   markdownTheme,
@@ -27,6 +28,7 @@ import {
 } from "../events/files";
 import type { HostProfileManager } from "../host/files";
 import { renderHostSummary } from "../host/render";
+import { GLOBAL_EVENTS_SESSION_TITLE, GLOBAL_MONITOR_SESSION_TITLE } from "../gateway/global-sessions";
 
 export interface CliReplOptions {
   gateway: Gateway;
@@ -64,6 +66,7 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
       { name: "help", description: "查看帮助" },
       { name: "sessions", description: "列出当前会话" },
       { name: "use <id|number>", description: "切换到指定会话 (/use 1 或 /use sess_xxx)" },
+      { name: "use new", description: "清空当前绑定，下一条消息创建新会话" },
       { name: "host", description: "查看当前宿主环境摘要" },
       { name: "host refresh", description: "重新采集宿主环境并更新 HOST_PROFILE" },
       { name: "host show", description: "查看当前 HOST_PROFILE 内容" },
@@ -72,11 +75,13 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
       { name: "session rm <id|number>", description: "删除指定会话并清理其 events" },
       { name: "clear", description: "清除当前会话绑定" },
       { name: "events", description: "列出当前事件文件" },
+      { name: "events runs", description: "查看全局 event 执行历史" },
       { name: "events show <file>", description: "查看指定事件文件内容" },
       { name: "event rm <file>", description: "删除指定事件文件" },
+      { name: "monitor", description: "查看最近的监控告警摘要" },
+      { name: "monitor show", description: "查看全局 monitor 历史" },
       { name: "approve <approvalRef>", description: "批准指定高风险操作" },
       { name: "deny <approvalRef>", description: "拒绝指定高风险操作" },
-      { name: "monitor", description: "查看最近的监控告警" },
       { name: "expand", description: "展开折叠的工具调用 (可选: /expand <序号>)" },
       { name: "exit", description: "退出 CLI" },
     ],
@@ -101,6 +106,134 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
 
   function renderUserInput(text: string): string {
     return chalk.bgHex("#1e1e2e").white(` > ${text} `);
+  }
+
+  async function findSessionByTitle(title: string): Promise<SessionSnapshot | null> {
+    const sessions = await options.gateway.listSessions();
+    const summary = sessions.find((entry) => entry.title === title);
+    if (!summary) {
+      return null;
+    }
+    return options.gateway.getSession(summary.sessionId);
+  }
+
+  function flushCurrentToolRun(
+    currentToolRun: Array<{ name: string; inputSummary: string; resultSummary?: string; startedAt: number }>,
+    toolRunStartTime: number,
+  ): Array<{ name: string; inputSummary: string; resultSummary?: string; startedAt: number }> {
+    if (currentToolRun.length === 0) {
+      return currentToolRun;
+    }
+
+    const totalElapsed = Math.round((Date.now() - toolRunStartTime) / 100) / 10;
+    const runIndex = collapsedRuns.length + 1;
+    const expandedLines = currentToolRun.flatMap((t) => [
+      toolCallStyle(`  ▶ ${t.name}  ${chalk.gray(t.inputSummary)}`),
+      ...(t.resultSummary ? [toolResultStyle(`    └ ${t.resultSummary}`)] : []),
+    ]);
+    collapsedRuns.push({ label: `第 ${runIndex} 次`, lines: expandedLines });
+    const hint = chalk.gray(` (输入 /expand ${runIndex} 展开)`);
+    const summaryLine = chalk.gray(`  ▼ ${currentToolRun.length} 个工具调用，耗时 ${totalElapsed}s`) + hint;
+    messagesContainer.addChild(new Text(summaryLine, 0, 0));
+    return [];
+  }
+
+  function appendSessionTranscript(snapshot: SessionSnapshot, header: string) {
+    addTextMsg(systemMessage(header));
+
+    let currentToolRun: Array<{
+      name: string;
+      inputSummary: string;
+      resultSummary?: string;
+      startedAt: number;
+    }> = [];
+    let toolRunStartTime = 0;
+
+    for (const entry of snapshot.transcript) {
+      switch (entry.kind) {
+        case "message": {
+          currentToolRun = flushCurrentToolRun(currentToolRun, toolRunStartTime);
+          const role = entry.payload.role as string;
+          const content = entry.payload.content as string;
+          if (role === "user") {
+            addTextMsg(renderUserInput(content));
+          } else if (role === "assistant" && content) {
+            addMarkdownMsg(content);
+          }
+          break;
+        }
+
+        case "tool_call": {
+          if (currentToolRun.length === 0) {
+            toolRunStartTime = Date.now();
+          }
+          const toolName = entry.payload.toolName as string;
+          const input = entry.payload.input as Record<string, unknown>;
+          const inputStr = JSON.stringify(input);
+          const inputSummary = inputStr.length > 60 ? inputStr.slice(0, 57) + "..." : inputStr;
+          currentToolRun.push({ name: toolName, inputSummary, startedAt: Date.now() });
+          break;
+        }
+
+        case "tool_result": {
+          if (currentToolRun.length > 0) {
+            const tool = currentToolRun[currentToolRun.length - 1]!;
+            const elapsed = Date.now() - tool.startedAt;
+            const output = entry.payload.output;
+            const outputRaw = typeof output === "string" ? output : JSON.stringify(output ?? "");
+            const preview = outputRaw.length > 80 ? outputRaw.slice(0, 77) + "..." : outputRaw;
+            tool.resultSummary = `${preview}  ${chalk.gray(`(${elapsed}ms)`)}`;
+          }
+          break;
+        }
+
+        case "scheduled_event": {
+          currentToolRun = flushCurrentToolRun(currentToolRun, toolRunStartTime);
+          const eventType = String(entry.payload.eventType ?? "unknown");
+          const text = String(entry.payload.text ?? "");
+          messagesContainer.addChild(new Text(chalk.cyan(`  ⏰ [${eventType}] ${text}`), 0, 0));
+          break;
+        }
+
+        case "monitor_event": {
+          currentToolRun = flushCurrentToolRun(currentToolRun, toolRunStartTime);
+          const eventType = String(entry.payload.eventType ?? "monitor");
+          const summary = String(entry.payload.summary ?? "");
+          messagesContainer.addChild(new Text(chalk.cyan(`  📡 [${eventType}] ${summary}`), 0, 0));
+          break;
+        }
+
+        case "approval": {
+          currentToolRun = flushCurrentToolRun(currentToolRun, toolRunStartTime);
+          const status = String(entry.payload.status ?? "unknown");
+          const toolName = String(entry.payload.toolName ?? "unknown");
+          const reason = String(entry.payload.reason ?? "");
+          const approvalRef = String(entry.payload.approvalRef ?? "unknown");
+          const resolvedBy = entry.payload.resolvedBy ? ` by ${String(entry.payload.resolvedBy)}` : "";
+
+          if (status === "pending") {
+            messagesContainer.addChild(
+              new Text(chalk.yellow(`  ⛔ [approval:${approvalRef}] ${toolName} 需要确认: ${reason}`), 0, 0),
+            );
+          } else if (status === "approved_once") {
+            messagesContainer.addChild(
+              new Text(chalk.green(`  ✅ [approval:${approvalRef}] 已批准 ${toolName}${resolvedBy}`), 0, 0),
+            );
+          } else if (status === "denied") {
+            messagesContainer.addChild(
+              new Text(chalk.red(`  ✋ [approval:${approvalRef}] 已拒绝 ${toolName}${resolvedBy}`), 0, 0),
+            );
+          } else {
+            messagesContainer.addChild(
+              new Text(chalk.gray(`  [approval:${approvalRef}] ${toolName} ${status}`), 0, 0),
+            );
+          }
+          break;
+        }
+      }
+    }
+
+    flushCurrentToolRun(currentToolRun, toolRunStartTime);
   }
 
   function formatMonitorMessage(message: string, type: "alert" | "recovered" | "info"): string {
@@ -130,10 +263,28 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
 
   // ── 折叠工具区历史（用于 /expand 展开）──
   const collapsedRuns: Array<{ label: string; lines: string[] }> = [];
-  const scheduledRunSessions = new Map<string, string>();
+  const backgroundRunSessions = new Map<string, string>();
 
   // 欢迎信息
   addTextMsg(systemMessage("OMBot CLI 已启动，输入 /help 查看命令。"));
+
+  const recentInteractiveSession = await (async () => {
+    const sessions = await options.gateway.listSessions();
+    const latest = sessions.find((session) => session.type === "interactive");
+    if (!latest) {
+      return null;
+    }
+    return options.gateway.getSession(latest.sessionId);
+  })();
+
+  if (recentInteractiveSession) {
+    activeSessionId = recentInteractiveSession.session.sessionId;
+    appendSessionTranscript(
+      recentInteractiveSession,
+      `── 已加载上次会话 (${recentInteractiveSession.transcript.length} 条) ──`,
+    );
+    addTextMsg(systemMessage(`当前会话: ${activeSessionId}`));
+  }
 
   if (options.onMonitorMessage) {
     options.onMonitorMessage((message, type) => {
@@ -142,13 +293,28 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
     });
   }
 
-  const unsubscribeGatewayEvents = options.subscribeGatewayEvents?.((event) => {
+  const unsubscribeGatewayEvents = options.subscribeGatewayEvents?.(async (event) => {
     if (event.type === "scheduled_event.accepted") {
-      scheduledRunSessions.set(event.runId, event.sessionId);
-      if (activeSessionId === event.sessionId) {
+      backgroundRunSessions.set(event.runId, event.sessionId);
+      if (event.sessionId === activeSessionId) {
         addTextMsg(chalk.cyan(`  ⏰ 定时事件触发: ${event.sourceFile}`));
+      } else if (event.sessionId === (await findSessionByTitle(GLOBAL_EVENTS_SESSION_TITLE))?.session.sessionId) {
+        addTextMsg(chalk.gray(`  ⏰ 有全局 event 触发，可用 /events runs 查看执行详情。`));
       } else {
         addTextMsg(chalk.gray(`  ⏰ 会话 ${event.sessionId} 有定时事件触发，切换到该会话查看详情。`));
+      }
+      return;
+    }
+
+    if (event.type === "monitor.alert" || event.type === "monitor.recovered") {
+      backgroundRunSessions.set(event.runId, event.sessionId);
+      const prefix = event.type === "monitor.alert" ? "⚠️" : "✅";
+      if (event.sessionId === activeSessionId) {
+        addTextMsg(chalk.cyan(`  ${prefix} 监控事件触发: ${event.summary}`));
+      } else if (event.sessionId === (await findSessionByTitle(GLOBAL_MONITOR_SESSION_TITLE))?.session.sessionId) {
+        addTextMsg(chalk.gray(`  ${prefix} 有全局监控事件，可用 /monitor show 查看详情。`));
+      } else {
+        addTextMsg(chalk.gray(`  ${prefix} 会话 ${event.sessionId} 有监控事件，切换到该会话查看详情。`));
       }
       return;
     }
@@ -181,14 +347,14 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
       return;
     }
 
-    const runSessionId = scheduledRunSessions.get(event.runId);
+    const runSessionId = backgroundRunSessions.get(event.runId);
     if (!runSessionId) {
       return;
     }
 
     if (activeSessionId !== runSessionId) {
       if (event.type === "gateway.run.completed") {
-        scheduledRunSessions.delete(event.runId);
+        backgroundRunSessions.delete(event.runId);
       }
       return;
     }
@@ -215,8 +381,8 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
         addTextMsg(systemMessage(`[event-summary] ${event.summary}`));
         break;
       case "gateway.run.completed":
-        scheduledRunSessions.delete(event.runId);
-        addTextMsg(chalk.green("  ✅ 定时任务执行完成"));
+        backgroundRunSessions.delete(event.runId);
+        addTextMsg(chalk.green("  ✅ 后台事件执行完成"));
         break;
     }
   });
@@ -487,6 +653,19 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
           return;
         }
 
+        if (command.action === "runs") {
+          const snapshot = await findSessionByTitle(GLOBAL_EVENTS_SESSION_TITLE);
+          if (!snapshot || snapshot.transcript.length === 0) {
+            addTextMsg(systemMessage("暂无全局 event 执行记录。"));
+            return;
+          }
+
+          appendSessionTranscript(snapshot, `── 全局 event 执行历史 (${snapshot.transcript.length} 条) ──`);
+          addTextMsg(systemMessage("── 以上为全局 event 历史，当前会话未切换 ──"));
+          tui.requestRender();
+          return;
+        }
+
         if (command.action === "show") {
           if (!command.filename) {
             addTextMsg(systemMessage("请提供事件文件名，例如 /events show example.json"));
@@ -502,6 +681,31 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
           }
           return;
         }
+      }
+
+      if (command.type === "monitor") {
+        if (command.action === "show") {
+          const snapshot = await findSessionByTitle(GLOBAL_MONITOR_SESSION_TITLE);
+          if (!snapshot || snapshot.transcript.length === 0) {
+            addTextMsg(systemMessage("暂无全局 monitor 历史。"));
+            return;
+          }
+
+          appendSessionTranscript(snapshot, `── 全局 monitor 历史 (${snapshot.transcript.length} 条) ──`);
+          addTextMsg(systemMessage("── 以上为全局 monitor 历史，当前会话未切换 ──"));
+          tui.requestRender();
+          return;
+        }
+
+        if (monitorHistory.length === 0) {
+          addTextMsg(systemMessage("暂无监控告警记录。"));
+        } else {
+          addTextMsg(chalk.cyan.bold(`  📡 最近 ${monitorHistory.length} 条监控记录：`));
+          for (const entry of monitorHistory) {
+            addTextMsg(formatMonitorMessage(entry.message, entry.type));
+          }
+        }
+        return;
       }
 
       if (command.type === "event") {
@@ -527,6 +731,15 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
       }
 
       if (command.type === "use") {
+        if (command.action === "new") {
+          activeSessionId = undefined;
+          messagesContainer.clear();
+          collapsedRuns.length = 0;
+          tui.requestRender();
+          addTextMsg(systemMessage("已切换到新会话模式。下一条消息将创建新的 interactive session。"));
+          return;
+        }
+
         let targetSessionId: string | undefined;
 
         if (command.sessionIndex !== undefined) {
@@ -559,133 +772,7 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
         collapsedRuns.length = 0;
 
         if (snapshot.transcript.length > 0) {
-          addTextMsg(systemMessage(`── 历史记录 (${snapshot.transcript.length} 条) ──`));
-
-          let currentToolRun: Array<{
-            name: string;
-            inputSummary: string;
-            resultSummary?: string;
-            startedAt: number;
-          }> = [];
-          let toolRunStartTime = 0;
-
-          for (const entry of snapshot.transcript) {
-            switch (entry.kind) {
-              case "message": {
-                // 先处理之前累积的工具调用
-                if (currentToolRun.length > 0) {
-                  const totalElapsed = Math.round((Date.now() - toolRunStartTime) / 100) / 10;
-                  const runIndex = collapsedRuns.length + 1;
-                  const expandedLines = currentToolRun.flatMap((t) => [
-                    toolCallStyle(`  ▶ ${t.name}  ${chalk.gray(t.inputSummary)}`),
-                    ...(t.resultSummary ? [toolResultStyle(`    └ ${t.resultSummary}`)] : []),
-                  ]);
-                  collapsedRuns.push({ label: `第 ${runIndex} 次`, lines: expandedLines });
-                  const hint = chalk.gray(` (输入 /expand ${runIndex} 展开)`);
-                  const summaryLine = chalk.gray(`  ▼ ${currentToolRun.length} 个工具调用，耗时 ${totalElapsed}s`) + hint;
-                  messagesContainer.addChild(new Text(summaryLine, 0, 0));
-                  currentToolRun = [];
-                }
-
-                const role = entry.payload.role as string;
-                const content = entry.payload.content as string;
-                if (role === "user") {
-                  addTextMsg(renderUserInput(content));
-                } else if (role === "assistant" && content) {
-                  addMarkdownMsg(content);
-                }
-                break;
-              }
-
-              case "tool_call": {
-                if (currentToolRun.length === 0) {
-                  toolRunStartTime = Date.now();
-                }
-                const toolName = entry.payload.toolName as string;
-                const input = entry.payload.input as Record<string, unknown>;
-                const inputStr = JSON.stringify(input);
-                const inputSummary = inputStr.length > 60 ? inputStr.slice(0, 57) + "..." : inputStr;
-                currentToolRun.push({ name: toolName, inputSummary, startedAt: Date.now() });
-                break;
-              }
-
-              case "tool_result": {
-                if (currentToolRun.length > 0) {
-                  const tool = currentToolRun[currentToolRun.length - 1]!;
-                  const elapsed = Date.now() - tool.startedAt;
-                  const output = entry.payload.output;
-                  const outputRaw = typeof output === "string" ? output : JSON.stringify(output ?? "");
-                  const preview = outputRaw.length > 80 ? outputRaw.slice(0, 77) + "..." : outputRaw;
-                  tool.resultSummary = `${preview}  ${chalk.gray(`(${elapsed}ms)`)}`;
-                }
-                break;
-              }
-
-              case "scheduled_event": {
-                // 先处理之前累积的工具调用
-                if (currentToolRun.length > 0) {
-                  const totalElapsed = Math.round((Date.now() - toolRunStartTime) / 100) / 10;
-                  const runIndex = collapsedRuns.length + 1;
-                  const expandedLines = currentToolRun.flatMap((t) => [
-                    toolCallStyle(`  ▶ ${t.name}  ${chalk.gray(t.inputSummary)}`),
-                    ...(t.resultSummary ? [toolResultStyle(`    └ ${t.resultSummary}`)] : []),
-                  ]);
-                  collapsedRuns.push({ label: `第 ${runIndex} 次`, lines: expandedLines });
-                  const hint = chalk.gray(` (输入 /expand ${runIndex} 展开)`);
-                  const summaryLine = chalk.gray(`  ▼ ${currentToolRun.length} 个工具调用，耗时 ${totalElapsed}s`) + hint;
-                  messagesContainer.addChild(new Text(summaryLine, 0, 0));
-                  currentToolRun = [];
-                }
-
-                const eventType = String(entry.payload.eventType ?? "unknown");
-                const text = String(entry.payload.text ?? "");
-                messagesContainer.addChild(new Text(chalk.cyan(`  ⏰ [${eventType}] ${text}`), 0, 0));
-                break;
-              }
-
-              case "approval": {
-                const status = String(entry.payload.status ?? "unknown");
-                const toolName = String(entry.payload.toolName ?? "unknown");
-                const reason = String(entry.payload.reason ?? "");
-                const approvalRef = String(entry.payload.approvalRef ?? "unknown");
-                const resolvedBy = entry.payload.resolvedBy ? ` by ${String(entry.payload.resolvedBy)}` : "";
-
-                if (status === "pending") {
-                  messagesContainer.addChild(
-                    new Text(chalk.yellow(`  ⛔ [approval:${approvalRef}] ${toolName} 需要确认: ${reason}`), 0, 0),
-                  );
-                } else if (status === "approved_once") {
-                  messagesContainer.addChild(
-                    new Text(chalk.green(`  ✅ [approval:${approvalRef}] 已批准 ${toolName}${resolvedBy}`), 0, 0),
-                  );
-                } else if (status === "denied") {
-                  messagesContainer.addChild(
-                    new Text(chalk.red(`  ✋ [approval:${approvalRef}] 已拒绝 ${toolName}${resolvedBy}`), 0, 0),
-                  );
-                } else {
-                  messagesContainer.addChild(
-                    new Text(chalk.gray(`  [approval:${approvalRef}] ${toolName} ${status}`), 0, 0),
-                  );
-                }
-                break;
-              }
-            }
-          }
-
-          // 处理最后一批工具调用
-          if (currentToolRun.length > 0) {
-            const totalElapsed = Math.round((Date.now() - toolRunStartTime) / 100) / 10;
-            const runIndex = collapsedRuns.length + 1;
-            const expandedLines = currentToolRun.flatMap((t) => [
-              toolCallStyle(`  ▶ ${t.name}  ${chalk.gray(t.inputSummary)}`),
-              ...(t.resultSummary ? [toolResultStyle(`    └ ${t.resultSummary}`)] : []),
-            ]);
-            collapsedRuns.push({ label: `第 ${runIndex} 次`, lines: expandedLines });
-            const hint = chalk.gray(` (输入 /expand ${runIndex} 展开)`);
-            const summaryLine = chalk.gray(`  ▼ ${currentToolRun.length} 个工具调用，耗时 ${totalElapsed}s`) + hint;
-            messagesContainer.addChild(new Text(summaryLine, 0, 0));
-          }
-
+          appendSessionTranscript(snapshot, `── 历史记录 (${snapshot.transcript.length} 条) ──`);
           addTextMsg(systemMessage(`── 以上为历史记录，继续对话 ──`));
         } else {
           addTextMsg(systemMessage("该会话暂无历史记录。"));
@@ -726,18 +813,6 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
           tui.requestRender();
         }
         addTextMsg(systemMessage(`已删除会话: ${targetSessionId}（其绑定的 events 也已清理）`));
-        return;
-      }
-
-      if (trimmed === "/monitor") {
-        if (monitorHistory.length === 0) {
-          addTextMsg(systemMessage("暂无监控告警记录。"));
-        } else {
-          addTextMsg(chalk.cyan.bold(`  📡 最近 ${monitorHistory.length} 条监控记录：`));
-          for (const entry of monitorHistory) {
-            addTextMsg(formatMonitorMessage(entry.message, entry.type));
-          }
-        }
         return;
       }
 

@@ -8,8 +8,8 @@ import type { OmbotEventFile, ParsedOmbotEvent } from "./types";
 
 const baseSchema = z.object({
   text: z.string().min(1),
-  sessionId: z.string().min(1).optional(),
   title: z.string().min(1).optional(),
+  context: z.string().min(1).optional(),
   profile: z.string().min(1).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });

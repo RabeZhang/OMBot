@@ -35,7 +35,7 @@ function createGatewaySpy(calls: ScheduledEventInput[]): Gateway {
     async dispatchScheduledEvent(input: ScheduledEventInput) {
       calls.push(input);
       return {
-        sessionId: input.sessionId ?? "sess_test",
+        sessionId: "sess_test",
         runId: "run_test",
         stream: (async function* () {})(),
       };

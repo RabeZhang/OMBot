@@ -1,7 +1,7 @@
 export interface EventFileBase {
   text: string;
-  sessionId?: string;
   title?: string;
+  context?: string;
   profile?: string;
   metadata?: Record<string, unknown>;
 }

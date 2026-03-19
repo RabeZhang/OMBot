@@ -29,6 +29,10 @@ export interface MonitorRuleState {
     cooldownUntil: string | null;
     /** 连续失败次数 */
     consecutiveFailures: number;
+    /** 连续成功次数 */
+    consecutiveSuccesses: number;
+    /** 当前是否处于 incident 激活状态 */
+    incidentActive: boolean;
 }
 
 /**
@@ -66,5 +70,7 @@ export function createInitialState(): MonitorRuleState {
         lastOk: null,
         cooldownUntil: null,
         consecutiveFailures: 0,
+        consecutiveSuccesses: 0,
+        incidentActive: false,
     };
 }

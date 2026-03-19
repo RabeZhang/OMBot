@@ -4,6 +4,8 @@ monitors:
     enabled: true
     type: http
     interval: 30s
+    failure_threshold: 2
+    recovery_threshold: 1
     target:
       url: "http://localhost:9001/health"
       expected_status: 200
@@ -17,6 +19,8 @@ monitors:
     enabled: true
     type: http
     interval: 30s
+    failure_threshold: 2
+    recovery_threshold: 2
     target:
       url: "http://localhost:9002/health"
       expected_status: 200
@@ -34,6 +38,8 @@ monitors:
     enabled: true
     type: http
     interval: 20s
+    failure_threshold: 3
+    recovery_threshold: 2
     target:
       url: "http://localhost:9003/health"
       expected_status: 200
@@ -47,6 +53,8 @@ monitors:
     enabled: true
     type: http
     interval: 60s
+    failure_threshold: 2
+    recovery_threshold: 2
     target:
       url: "http://localhost:9004/health"
       expected_status: 200
@@ -60,6 +68,8 @@ monitors:
     enabled: true
     type: http
     interval: 30s
+    failure_threshold: 2
+    recovery_threshold: 2
     target:
       url: "http://localhost:9005/health"
       expected_status: 200
@@ -73,6 +83,8 @@ monitors:
     enabled: true
     type: resource
     interval: 300s
+    failure_threshold: 1
+    recovery_threshold: 1
     target:
       metric: disk_usage
       mount_point: "/"
@@ -87,6 +99,8 @@ monitors:
     enabled: true
     type: resource
     interval: 30s
+    failure_threshold: 2
+    recovery_threshold: 2
     target:
       metric: cpu_usage
     threshold:
@@ -100,6 +114,8 @@ monitors:
     enabled: true
     type: resource
     interval: 30s
+    failure_threshold: 2
+    recovery_threshold: 2
     target:
       metric: memory_usage
     threshold:

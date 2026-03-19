@@ -1,6 +1,18 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("../../src/monitor/runners", () => ({
+    executeCheck: vi.fn(),
+}));
+
 import { parseDuration, createInitialState } from "../../src/monitor/types";
 import { MonitorEngine } from "../../src/monitor/engine";
+import { executeCheck } from "../../src/monitor/runners";
+
+const mockedExecuteCheck = vi.mocked(executeCheck);
+
+beforeEach(() => {
+    mockedExecuteCheck.mockReset();
+});
 
 describe("parseDuration", () => {
     it("解析秒", () => {
@@ -33,6 +45,8 @@ describe("createInitialState", () => {
         expect(state.lastOk).toBeNull();
         expect(state.cooldownUntil).toBeNull();
         expect(state.consecutiveFailures).toBe(0);
+        expect(state.consecutiveSuccesses).toBe(0);
+        expect(state.incidentActive).toBe(false);
     });
 });
 
@@ -93,5 +107,108 @@ describe("MonitorEngine", () => {
         await engine.start();
         await engine.stop();
         // 不抛错即通过
+    });
+
+    it("only alerts after reaching failureThreshold", async () => {
+        mockedExecuteCheck
+            .mockResolvedValueOnce({ ok: false, summary: "第一次失败", details: {} })
+            .mockResolvedValueOnce({ ok: false, summary: "第二次失败", details: {} });
+
+        const mockGateway = {
+            sendUserMessage: vi.fn(),
+            dispatchMonitorEvent: vi.fn().mockResolvedValue({
+                sessionId: "incident_1",
+                runId: "run_1",
+                stream: (async function* () { })(),
+            }),
+            resolveApproval: vi.fn(),
+            listSessions: vi.fn(),
+            getSession: vi.fn(),
+        };
+
+        const rule = {
+            id: "cpu-usage",
+            name: "CPU 使用率",
+            enabled: true,
+            type: "resource" as const,
+            interval: "30s",
+            failureThreshold: 2,
+            recoveryThreshold: 1,
+            target: { metric: "cpu_usage" },
+        };
+
+        const engine = new MonitorEngine({
+            gateway: mockGateway as any,
+            rules: [rule],
+        });
+
+        await (engine as any).runCheck(rule);
+        expect(mockGateway.dispatchMonitorEvent).not.toHaveBeenCalled();
+
+        await (engine as any).runCheck(rule);
+        expect(mockGateway.dispatchMonitorEvent).toHaveBeenCalledTimes(1);
+        expect(mockGateway.dispatchMonitorEvent).toHaveBeenCalledWith(expect.objectContaining({
+            ruleId: "cpu-usage",
+            type: "monitor.alert",
+            details: expect.objectContaining({
+                consecutiveFailures: 2,
+                failureThreshold: 2,
+            }),
+        }));
+    });
+
+    it("only recovers after reaching recoveryThreshold", async () => {
+        mockedExecuteCheck
+            .mockResolvedValueOnce({ ok: false, summary: "失败", details: {} })
+            .mockResolvedValueOnce({ ok: true, summary: "第一次恢复成功", details: {} })
+            .mockResolvedValueOnce({ ok: true, summary: "第二次恢复成功", details: {} });
+
+        const mockGateway = {
+            sendUserMessage: vi.fn(),
+            dispatchMonitorEvent: vi.fn().mockResolvedValue({
+                sessionId: "incident_1",
+                runId: "run_1",
+                stream: (async function* () { })(),
+            }),
+            resolveApproval: vi.fn(),
+            listSessions: vi.fn(),
+            getSession: vi.fn(),
+        };
+
+        const rule = {
+            id: "memory-usage",
+            name: "内存使用率",
+            enabled: true,
+            type: "resource" as const,
+            interval: "30s",
+            failureThreshold: 1,
+            recoveryThreshold: 2,
+            target: { metric: "memory_usage" },
+        };
+
+        const engine = new MonitorEngine({
+            gateway: mockGateway as any,
+            rules: [rule],
+        });
+
+        await (engine as any).runCheck(rule);
+        expect(mockGateway.dispatchMonitorEvent).toHaveBeenCalledTimes(1);
+        expect(mockGateway.dispatchMonitorEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+            type: "monitor.alert",
+        }));
+
+        await (engine as any).runCheck(rule);
+        expect(mockGateway.dispatchMonitorEvent).toHaveBeenCalledTimes(1);
+
+        await (engine as any).runCheck(rule);
+        expect(mockGateway.dispatchMonitorEvent).toHaveBeenCalledTimes(2);
+        expect(mockGateway.dispatchMonitorEvent).toHaveBeenLastCalledWith(expect.objectContaining({
+            ruleId: "memory-usage",
+            type: "monitor.recovered",
+            details: expect.objectContaining({
+                consecutiveSuccesses: 2,
+                recoveryThreshold: 2,
+            }),
+        }));
     });
 });
