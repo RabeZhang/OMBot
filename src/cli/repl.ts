@@ -698,7 +698,12 @@ export async function startCliRepl(options: CliReplOptions): Promise<void> {
         }
 
         if (monitorHistory.length === 0) {
-          addTextMsg(systemMessage("暂无监控告警记录。"));
+          const snapshot = await findSessionByTitle(GLOBAL_MONITOR_SESSION_TITLE);
+          if (snapshot && snapshot.transcript.length > 0) {
+            addTextMsg(systemMessage("最近 monitor 事件已记录，可用 /monitor show 查看全局历史。"));
+          } else {
+            addTextMsg(systemMessage("暂无监控告警记录。"));
+          }
         } else {
           addTextMsg(chalk.cyan.bold(`  📡 最近 ${monitorHistory.length} 条监控记录：`));
           for (const entry of monitorHistory) {
